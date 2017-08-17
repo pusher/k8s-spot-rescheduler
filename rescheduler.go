@@ -50,6 +50,7 @@ import (
 const (
 	criticalPodAnnotation      = "scheduler.alpha.kubernetes.io/critical-pod"
 	criticalAddonsOnlyTaintKey = "CriticalAddonsOnly"
+	workerNodeLabel            = "node-role.kubernetes.io/worker"
 	// TaintsAnnotationKey represents the key of taints data (json serialized)
 	// in the Annotations of a Node.
 	TaintsAnnotationKey string = "scheduler.alpha.kubernetes.io/taints"
@@ -120,6 +121,7 @@ func main() {
 
 	stopChannel := make(chan struct{})
 	unschedulablePodLister := kube_utils.NewUnschedulablePodInNamespaceLister(kubeClient, *systemNamespace, stopChannel)
+	scheduledPodLister := kube_utils.NewScheduledPodLister(kubeClient, stopChannel)
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
 
 	// TODO(piosz): consider reseting this set once every few hours.
@@ -141,6 +143,20 @@ func main() {
 					glog.Errorf("Failed to list unscheduled pods: %v", err)
 					continue
 				}
+
+				allScheduledPods, err := scheduledPodLister.List()
+				if err != nil {
+					glog.Errorf("Failed to list scheduled pods: %v", err)
+					continue
+				}
+
+				allNodes, err := nodeLister.List()
+				if err != nil {
+					glog.Errorf("Failed to list nodes: %v", err)
+					continue
+				}
+
+				workerNodePods := filterWorkerNodePods(allNodes, allScheduledPods, podsBeingProcessed)
 
 				criticalPods := filterCriticalPods(allUnschedulablePods, podsBeingProcessed)
 
@@ -174,6 +190,12 @@ func main() {
 							podsBeingProcessed.Add(pod)
 							go waitForScheduled(kubeClient, podsBeingProcessed, pod)
 						}
+					}
+				}
+
+				if len(workerNodePods) > 0 {
+					for _, pod := range workerNodePods {
+						glog.Infof("Found %s on a worker node", pod.Name)
 					}
 				}
 
@@ -460,7 +482,36 @@ func filterCriticalPods(allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*api
 	return criticalPods
 }
 
+func filterWorkerNodePods(allNodes []*apiv1.Node, allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
+	workerNodePods := []*apiv1.Pod{}
+	for _, pod := range allPods {
+		if isWorkerNodePod(allNodes, pod) && !podsBeingProcessed.Has(pod) {
+			workerNodePods = append(workerNodePods, pod)
+		}
+	}
+	return workerNodePods
+}
+
 func isCriticalPod(pod *apiv1.Pod) bool {
 	_, found := pod.ObjectMeta.Annotations[criticalPodAnnotation]
 	return found
+}
+
+func isWorkerNodePod(allNodes []*apiv1.Node, pod *apiv1.Pod) bool {
+	nodeName := pod.Spec.NodeName
+	node := getNodeByName(allNodes, nodeName)
+	if node == nil {
+		glog.Errorf("Failed to find a node named %v", nodeName)
+	}
+	_, found := node.ObjectMeta.Labels[workerNodeLabel]
+	return found
+}
+
+func getNodeByName(allNodes []*apiv1.Node, nodeName string) *apiv1.Node {
+	for _, node := range allNodes {
+		if node.Name == nodeName {
+			return node
+		}
+	}
+	return nil
 }
