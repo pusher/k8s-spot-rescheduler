@@ -28,3 +28,11 @@ push-to-ecr:
       repository: pusher/spot-rescheduler
       tag: $WERCKER_GIT_COMMIT, $WERCKER_GIT_BRANCH, latest
       entrypoint: /rescheduler
+
+deploy-to-kubernetes:
+  steps:
+    - kubectl:
+        server: $KUBERNETES_MASTER
+        token: $KUBERNETES_TOKEN
+        insecure-skip-tls-verify: true
+        command: set image -n kube-system deployment spot-rescheduler spot-rescheduler=$CONTAINER_IMAGE:$WERCKER_GIT_COMMIT
