@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"time"
 
 	ca_simulator "k8s.io/contrib/cluster-autoscaler/simulator"
@@ -508,6 +509,18 @@ func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, 
 		}
 	}
 
+	sort.Slice(workerNodes, func(i int, j int) bool {
+		iCPU, _, err := getNodeSpareCapacity(client, workerNodes[i])
+		if err != nil {
+			glog.Errorf("Failed to find node capacity %v", err)
+		}
+		jCPU, _, err := getNodeSpareCapacity(client, workerNodes[j])
+		if err != nil {
+			glog.Errorf("Failed to find node capacity %v", err)
+		}
+		return iCPU > jCPU
+	})
+
 	workerNodePods := []*apiv1.Pod{}
 	for _, node := range workerNodes {
 		podsOnNode, err := getPodsOnNode(client, node)
@@ -574,4 +587,38 @@ func getPodsOnNode(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod
 		pods = append(pods, &podsOnNode.Items[i])
 	}
 	return pods, nil
+}
+
+func getNodeSpareCapacity(client kube_client.Interface, node *apiv1.Node) (int64, int64, error) {
+	nodeCPU := node.Status.Capacity.Cpu().MilliValue()
+	nodeMemory := node.Status.Capacity.Memory().MilliValue()
+
+	podsOnNode, err := getPodsOnNode(client, node)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var CPURequests, MemoryRequests int64 = 0, 0
+
+	for _, pod := range podsOnNode {
+		podCPURequest, podMemoryRequest := getPodRequests(pod)
+		CPURequests += podCPURequest
+		MemoryRequests += podMemoryRequest
+	}
+
+	return nodeCPU - CPURequests, nodeMemory - MemoryRequests, nil
+}
+
+func getPodRequests(pod *apiv1.Pod) (int64, int64) {
+	var CPUTotal, MemoryTotal int64 = 0, 0
+	if len(pod.Spec.Containers) > 0 {
+		for _, container := range pod.Spec.Containers {
+			CPURequest := container.Resources.Requests.Cpu().MilliValue()
+			MemoryRequest := container.Resources.Requests.Memory().MilliValue()
+
+			CPUTotal += CPURequest
+			MemoryTotal += MemoryRequest
+		}
+	}
+	return CPUTotal, MemoryTotal
 }
