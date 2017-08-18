@@ -104,9 +104,6 @@ func main() {
 		glog.Fatalf("Failed to start metrics: %v", err)
 	}()
 
-	// TODO(piosz): figure out a better way of verifying cluster stabilization here.
-	time.Sleep(*initialDelay)
-
 	kubeClient, err := createKubeClient(flags, *inCluster)
 	if err != nil {
 		glog.Fatalf("Failed to create kube client: %v", err)
