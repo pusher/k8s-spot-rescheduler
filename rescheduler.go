@@ -51,6 +51,7 @@ const (
 	criticalPodAnnotation      = "scheduler.alpha.kubernetes.io/critical-pod"
 	criticalAddonsOnlyTaintKey = "CriticalAddonsOnly"
 	workerNodeLabel            = "node-role.kubernetes.io/worker"
+	spotNodeLabel              = "node-role.kubernetes.io/spot"
 	// TaintsAnnotationKey represents the key of taints data (json serialized)
 	// in the Annotations of a Node.
 	TaintsAnnotationKey string = "scheduler.alpha.kubernetes.io/taints"
@@ -202,11 +203,15 @@ func main() {
 
 						node := findNodeForPod(kubeClient, predicateChecker, nodes, pod)
 						if node == nil {
-							glog.Errorf("Pod %s can't be rescheduled on any existing node.", podId(pod))
-							recorder.Eventf(pod, apiv1.EventTypeNormal, "PodDoestFitAnyNode",
-								"Pod %s doesn't fit on any other node.", podId(pod))
+							glog.Infof("Pod %s can't be rescheduled on any existing node.", podId(pod))
 							continue
 						}
+						if !isSpotNode(node) {
+							glog.Infof("Pod %s can't be rescheduled on any spot node.", podId(pod))
+						} else {
+							glog.Infof("Pod %s can be rescheduled onto %s.", podId(pod), node.Name)
+						}
+
 						glog.Infof("Trying to place the pod on node %v", node.Name)
 
 					}
@@ -522,6 +527,11 @@ func isWorkerNodePod(allNodes []*apiv1.Node, pod *apiv1.Pod) bool {
 
 func isReplicaSetPod(pod *apiv1.Pod) bool {
 	return len(pod.ObjectMeta.OwnerReferences) > 0 && pod.ObjectMeta.OwnerReferences[0].Kind == "ReplicaSet"
+}
+
+func isSpotNode(node *apiv1.Node) bool {
+	_, found := node.ObjectMeta.Labels[spotNodeLabel]
+	return found
 }
 
 func getNodeByName(allNodes []*apiv1.Node, nodeName string) *apiv1.Node {
