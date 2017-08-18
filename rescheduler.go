@@ -485,7 +485,7 @@ func filterCriticalPods(allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*api
 func filterWorkerNodePods(allNodes []*apiv1.Node, allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
 	workerNodePods := []*apiv1.Pod{}
 	for _, pod := range allPods {
-		if isWorkerNodePod(allNodes, pod) && !podsBeingProcessed.Has(pod) {
+		if isReplicaSetPod(pod) && isWorkerNodePod(allNodes, pod) && !podsBeingProcessed.Has(pod) {
 			workerNodePods = append(workerNodePods, pod)
 		}
 	}
@@ -505,6 +505,10 @@ func isWorkerNodePod(allNodes []*apiv1.Node, pod *apiv1.Pod) bool {
 	}
 	_, found := node.ObjectMeta.Labels[workerNodeLabel]
 	return found
+}
+
+func isReplicaSetPod(pod *apiv1.Pod) bool {
+	return len(pod.ObjectMeta.OwnerReferences) > 0 && pod.ObjectMeta.OwnerReferences[0].Kind == "ReplicaSet"
 }
 
 func getNodeByName(allNodes []*apiv1.Node, nodeName string) *apiv1.Node {
