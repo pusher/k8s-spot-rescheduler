@@ -27,6 +27,7 @@ import (
 	ca_simulator "k8s.io/contrib/cluster-autoscaler/simulator"
 	ca_drain "k8s.io/contrib/cluster-autoscaler/utils/drain"
 
+	"github.com/pusher/spot-rescheduler/metrics"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -35,7 +36,6 @@ import (
 	kube_restclient "k8s.io/client-go/rest"
 	kube_record "k8s.io/client-go/tools/record"
 	kube_utils "k8s.io/contrib/cluster-autoscaler/utils/kubernetes"
-	"k8s.io/contrib/rescheduler/metrics"
 	"k8s.io/kubernetes/pkg/api"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"

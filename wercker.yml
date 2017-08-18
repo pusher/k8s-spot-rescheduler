@@ -1,0 +1,30 @@
+build:
+  box: golang:1.8.3
+  steps:
+  - script:
+        name: Copy source to GOPATH
+        code: |
+          mv vendor/* /go/src/
+          mkdir -p /go/src/github.com/pusher/spot-rescheduler
+          cp -R . /go/src/github.com/pusher/spot-rescheduler
+  - script:
+      name: go build
+      code: GOPATH=/go GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o rescheduler
+  - script:
+      name: copy binary
+      code: cp rescheduler "$WERCKER_OUTPUT_DIR"
+
+push-to-ecr:
+  box: busybox
+  steps:
+  - script:
+    name: Copy binary
+    code: cp rescheduler /
+  - internal/docker-push:
+      aws-access-key: $AWS_ACCESS_KEY_ID
+      aws-secret-key: $AWS_SECRET_ACCESS_KEY
+      aws-region: us-east-1
+      aws-registry-id: $AWS_REGISTRY_ID
+      repository: pusher/spot-rescheduler
+      tag: $WERCKER_GIT_COMMIT, $WERCKER_GIT_BRANCH, latest
+      entrypoint: /rescheduler
