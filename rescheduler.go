@@ -193,6 +193,22 @@ func main() {
 				if len(workerNodePods) > 0 {
 					for _, pod := range workerNodePods {
 						glog.Infof("Found %s on a worker node", pod.Name)
+
+						nodes, err := nodeLister.List()
+						if err != nil {
+							glog.Errorf("Failed to list nodes: %v", err)
+							continue
+						}
+
+						node := findNodeForPod(kubeClient, predicateChecker, nodes, pod)
+						if node == nil {
+							glog.Errorf("Pod %s can't be rescheduled on any existing node.", podId(pod))
+							recorder.Eventf(pod, apiv1.EventTypeNormal, "PodDoestFitAnyNode",
+								"Pod %s doesn't fit on any other node.", podId(pod))
+							continue
+						}
+						glog.Infof("Trying to place the pod on node %v", node.Name)
+
 					}
 				}
 
