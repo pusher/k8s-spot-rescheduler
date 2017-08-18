@@ -154,7 +154,7 @@ func main() {
 					continue
 				}
 
-				workerNodePods := filterWorkerNodePods(allNodes, allScheduledPods, podsBeingProcessed)
+				workerNodePods := filterWorkerNodePods(kubeClient, allNodes, allScheduledPods, podsBeingProcessed)
 
 				criticalPods := filterCriticalPods(allUnschedulablePods, podsBeingProcessed)
 
@@ -500,13 +500,27 @@ func filterCriticalPods(allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*api
 	return criticalPods
 }
 
-func filterWorkerNodePods(allNodes []*apiv1.Node, allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
-	workerNodePods := []*apiv1.Pod{}
-	for _, pod := range allPods {
-		if isReplicaSetPod(pod) && isWorkerNodePod(allNodes, pod) && !podsBeingProcessed.Has(pod) {
-			workerNodePods = append(workerNodePods, pod)
+func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
+	workerNodes := []*apiv1.Node{}
+	for _, node := range allNodes {
+		if isWorkerNode(node) {
+			workerNodes = append(workerNodes, node)
 		}
 	}
+
+	workerNodePods := []*apiv1.Pod{}
+	for _, node := range workerNodes {
+		podsOnNode, err := getPodsOnNode(client, node)
+		if err != nil {
+			glog.Errorf("Failed to find pods on %v", node.Name)
+		}
+		for _, pod := range podsOnNode {
+			if isReplicaSetPod(pod) && !podsBeingProcessed.Has(pod) {
+				workerNodePods = append(workerNodePods, pod)
+			}
+		}
+	}
+
 	return workerNodePods
 }
 
@@ -534,6 +548,11 @@ func isSpotNode(node *apiv1.Node) bool {
 	return found
 }
 
+func isWorkerNode(node *apiv1.Node) bool {
+	_, found := node.ObjectMeta.Labels[workerNodeLabel]
+	return found
+}
+
 func getNodeByName(allNodes []*apiv1.Node, nodeName string) *apiv1.Node {
 	for _, node := range allNodes {
 		if node.Name == nodeName {
@@ -541,4 +560,18 @@ func getNodeByName(allNodes []*apiv1.Node, nodeName string) *apiv1.Node {
 		}
 	}
 	return nil
+}
+
+func getPodsOnNode(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod, error) {
+	podsOnNode, err := client.CoreV1().Pods(apiv1.NamespaceAll).List(
+		metav1.ListOptions{FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node.Name}).String()})
+	if err != nil {
+		return []*apiv1.Pod{}, err
+	}
+
+	pods := make([]*apiv1.Pod, 0)
+	for i := range podsOnNode.Items {
+		pods = append(pods, &podsOnNode.Items[i])
+	}
+	return pods, nil
 }
