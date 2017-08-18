@@ -1,0 +1,30 @@
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: spot-rescheduler
+  namespace: kube-system
+  labels:
+    app: spot-rescheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spot-rescheduler
+  template:
+    metadata:
+      labels:
+        app: spot-rescheduler
+    spec:
+      containers:
+        - image: spot-rescheduler
+          name: spot-rescheduler
+          resources:
+            limits:
+              cpu: 20m
+              memory: 100Mi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - --running-in-cluster=true
