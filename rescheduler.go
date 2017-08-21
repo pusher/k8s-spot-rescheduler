@@ -429,22 +429,33 @@ func addTaint(client kube_client.Interface, node *apiv1.Node, value string) erro
 	return nil
 }
 
-// Currently the logic choose a random node which satisfies requirements (a critical pod fits there).
-// TODO(piosz): add a prioritization to this logic
+// Currently the logic is to sort by the most requested cpu to try and fill fuller nodes first
 func findNodeForPod(client kube_client.Interface, predicateChecker *ca_simulator.PredicateChecker, nodes []*apiv1.Node, pod *apiv1.Pod) *apiv1.Node {
+	sort.Slice(nodes, func(i int, j int) bool {
+		iCPU, _, err := getNodeSpareCapacity(client, nodes[i])
+		if err != nil {
+			glog.Errorf("Failed to find node capacity %v", err)
+		}
+		jCPU, _, err := getNodeSpareCapacity(client, nodes[j])
+		if err != nil {
+			glog.Errorf("Failed to find node capacity %v", err)
+		}
+		return iCPU < jCPU
+	})
+
 	for _, node := range nodes {
 		// ignore nodes with taints
 		if err := checkTaints(node); err != nil {
 			glog.Warningf("Skipping node %v due to %v", node.Name, err)
 		}
 
-		requiredPods, _, err := groupPods(client, node)
+		podsOnNode, err := getPodsOnNode(client, node)
 		if err != nil {
 			glog.Warningf("Skipping node %v due to error: %v", node.Name, err)
 			continue
 		}
 
-		nodeInfo := schedulercache.NewNodeInfo(requiredPods...)
+		nodeInfo := schedulercache.NewNodeInfo(podsOnNode...)
 		nodeInfo.SetNode(node)
 
 		if err := predicateChecker.CheckPredicates(pod, nodeInfo); err == nil {
