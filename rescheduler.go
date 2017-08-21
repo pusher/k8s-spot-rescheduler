@@ -52,7 +52,7 @@ const (
 	criticalPodAnnotation      = "scheduler.alpha.kubernetes.io/critical-pod"
 	criticalAddonsOnlyTaintKey = "CriticalAddonsOnly"
 	workerNodeLabel            = "node-role.kubernetes.io/worker"
-	spotNodeLabel              = "node-role.kubernetes.io/spot"
+	spotNodeLabel              = "node-role.kubernetes.io/spot-worker"
 	// TaintsAnnotationKey represents the key of taints data (json serialized)
 	// in the Annotations of a Node.
 	TaintsAnnotationKey string = "scheduler.alpha.kubernetes.io/taints"
