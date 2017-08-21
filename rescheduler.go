@@ -202,15 +202,17 @@ func main() {
 							continue
 						}
 
-						node := findNodeForPod(kubeClient, predicateChecker, nodes, pod)
-						if node == nil {
-							glog.Infof("Pod %s can't be rescheduled on any existing node.", podId(pod))
-							continue
+						spotNodes := []*apiv1.Node{}
+						for _, node := range nodes {
+							if isSpotNode(node) {
+								spotNodes = append(spotNodes, node)
+							}
 						}
-						if !isSpotNode(node) {
-							glog.Infof("Pod %s can't be rescheduled on any spot node.", podId(pod))
-						} else {
-							glog.Infof("Pod %s can be rescheduled onto %s.", podId(pod), node.Name)
+
+						node := findNodeForPod(kubeClient, predicateChecker, spotNodes, pod)
+						if node == nil {
+							glog.Infof("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
+							continue
 						}
 
 						glog.Infof("Trying to place the pod on node %v", node.Name)
