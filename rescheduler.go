@@ -209,13 +209,20 @@ func main() {
 							}
 						}
 
+						// Works out if a spot node is available for rescheduling
 						node := findNodeForPod(kubeClient, predicateChecker, spotNodes, pod)
 						if node == nil {
 							glog.Infof("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
 							continue
 						}
 
-						glog.Infof("Trying to place the pod on node %v", node.Name)
+						err = deletePod(kubeClient, recorder, pod, node)
+						if err != nil {
+							glog.Infof("Failed to delete %s; %s", pod.Name, err)
+						} else {
+							podsBeingProcessed.Add(pod)
+							go waitForScheduled(kubeClient, podsBeingProcessed, pod)
+						}
 
 					}
 				}
@@ -403,6 +410,17 @@ func prepareNodeForPod(client kube_client.Interface, recorder kube_record.EventR
 	}
 
 	// TODO(piosz): how to reset scheduler backoff?
+	return nil
+}
+
+func deletePod(client kube_client.Interface, recorder kube_record.EventRecorder, pod *apiv1.Pod, node *apiv1.Node) error {
+	glog.Infof("Deleting pod %s", pod.Name)
+	recorder.Eventf(pod, apiv1.EventTypeNormal, "DeletedByRescheduler",
+		"Deleted by rescheduler to remove load from on-demand instance")
+	err := client.CoreV1().Pods(pod.Namespace).Delete(pod.Name, metav1.NewDeleteOptions(10))
+	if err != nil {
+		return fmt.Errorf("Failed to delete pod %s: %v", podId(pod), err)
+	}
 	return nil
 }
 
