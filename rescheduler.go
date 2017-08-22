@@ -214,6 +214,8 @@ func main() {
 						if node == nil {
 							glog.Infof("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
 							continue
+						} else {
+							glog.Infof("Pod %s can be rescheduled, attempting to reschedule.", podId(pod))
 						}
 
 						err = deletePod(kubeClient, recorder, pod, node)
