@@ -25,10 +25,10 @@ import (
 	"sort"
 	"time"
 
-	ca_simulator "k8s.io/contrib/cluster-autoscaler/simulator"
 	ca_drain "k8s.io/contrib/cluster-autoscaler/utils/drain"
 
 	"github.com/pusher/spot-rescheduler/metrics"
+	simulator "github.com/pusher/spot-rescheduler/predicates"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -113,7 +113,7 @@ func main() {
 
 	recorder := createEventRecorder(kubeClient)
 
-	predicateChecker, err := ca_simulator.NewPredicateChecker(kubeClient)
+	predicateChecker, err := simulator.NewPredicateChecker(kubeClient)
 	if err != nil {
 		glog.Fatalf("Failed to create predicate checker: %v", err)
 	}
@@ -357,7 +357,7 @@ func releaseTaintsOnNodes(client kube_client.Interface, nodes []*apiv1.Node, pod
 }
 
 // The caller of this function must remove the taint if this function returns error.
-func prepareNodeForPod(client kube_client.Interface, recorder kube_record.EventRecorder, predicateChecker *ca_simulator.PredicateChecker, originalNode *apiv1.Node, criticalPod *apiv1.Pod) error {
+func prepareNodeForPod(client kube_client.Interface, recorder kube_record.EventRecorder, predicateChecker *simulator.PredicateChecker, originalNode *apiv1.Node, criticalPod *apiv1.Pod) error {
 	// Operate on a copy of the node to ensure pods running on the node will pass CheckPredicates below.
 	node, err := copyNode(originalNode)
 	if err != nil {
@@ -432,7 +432,7 @@ func addTaint(client kube_client.Interface, node *apiv1.Node, value string) erro
 }
 
 // Currently the logic is to sort by the most requested cpu to try and fill fuller nodes first
-func findNodeForPod(client kube_client.Interface, predicateChecker *ca_simulator.PredicateChecker, nodes []*apiv1.Node, pod *apiv1.Pod) *apiv1.Node {
+func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodes []*apiv1.Node, pod *apiv1.Pod) *apiv1.Node {
 	sort.Slice(nodes, func(i int, j int) bool {
 		iCPU, _, err := getNodeSpareCapacity(client, nodes[i])
 		if err != nil {
@@ -445,10 +445,17 @@ func findNodeForPod(client kube_client.Interface, predicateChecker *ca_simulator
 		return iCPU < jCPU
 	})
 
-	for _, node := range nodes {
+	for _, originalNode := range nodes {
 		// ignore nodes with taints
-		if err := checkTaints(node); err != nil {
-			glog.Warningf("Skipping node %v due to %v", node.Name, err)
+		if err := checkTaints(originalNode); err != nil {
+			glog.Warningf("Skipping node %v due to %v", originalNode.Name, err)
+		}
+
+		// Operate on a copy of the node to ensure pods running on the node will pass CheckPredicates below.
+		node, err := copyNode(originalNode)
+		if err != nil {
+			glog.Errorf("Error while copying node: %v", err)
+			continue
 		}
 
 		podsOnNode, err := getPodsOnNode(client, node)
@@ -459,6 +466,9 @@ func findNodeForPod(client kube_client.Interface, predicateChecker *ca_simulator
 
 		nodeInfo := schedulercache.NewNodeInfo(podsOnNode...)
 		nodeInfo.SetNode(node)
+
+		// Pretend pod isn't scheduled
+		pod.Spec.NodeName = ""
 
 		if err := predicateChecker.CheckPredicates(pod, nodeInfo); err == nil {
 			return node
