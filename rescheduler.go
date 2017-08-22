@@ -167,6 +167,8 @@ func main() {
 						}
 
 					}
+				} else {
+					glog.Infof("No pods to be considered for rescheduling.")
 				}
 			}
 		}
