@@ -21,13 +21,13 @@ import (
 	"testing"
 	"time"
 
+	simulator "github.com/pusher/spot-rescheduler/predicates"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	core "k8s.io/client-go/testing"
 	kube_record "k8s.io/client-go/tools/record"
-	"k8s.io/contrib/cluster-autoscaler/simulator"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset/fake"
 )
