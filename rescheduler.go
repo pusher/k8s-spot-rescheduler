@@ -25,9 +25,6 @@ import (
 	"sort"
 	"time"
 
-	ca_drain "k8s.io/contrib/cluster-autoscaler/utils/drain"
-
-	"github.com/pusher/spot-rescheduler/metrics"
 	simulator "github.com/pusher/spot-rescheduler/predicates"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -49,10 +46,8 @@ import (
 )
 
 const (
-	criticalPodAnnotation      = "scheduler.alpha.kubernetes.io/critical-pod"
-	criticalAddonsOnlyTaintKey = "CriticalAddonsOnly"
-	workerNodeLabel            = "node-role.kubernetes.io/worker"
-	spotNodeLabel              = "node-role.kubernetes.io/spot-worker"
+	workerNodeLabel = "node-role.kubernetes.io/worker"
+	spotNodeLabel   = "node-role.kubernetes.io/spot-worker"
 	// TaintsAnnotationKey represents the key of taints data (json serialized)
 	// in the Annotations of a Node.
 	TaintsAnnotationKey string = "scheduler.alpha.kubernetes.io/taints"
@@ -72,13 +67,6 @@ var (
 
 	housekeepingInterval = flags.Duration("housekeeping-interval", 10*time.Second,
 		`How often rescheduler takes actions.`)
-
-	systemNamespace = flags.String("system-namespace", metav1.NamespaceSystem,
-		`Namespace to watch for critical addons.`)
-
-	initialDelay = flags.Duration("initial-delay", 2*time.Minute,
-		`How long should rescheduler wait after start to make sure
-		 all critical addons had a chance to start.`)
 
 	podScheduledTimeout = flags.Duration("pod-scheduled-timeout", 10*time.Minute,
 		`How long should rescheduler wait for critical pod to be scheduled
@@ -119,29 +107,16 @@ func main() {
 	}
 
 	stopChannel := make(chan struct{})
-	unschedulablePodLister := kube_utils.NewUnschedulablePodInNamespaceLister(kubeClient, *systemNamespace, stopChannel)
 	scheduledPodLister := kube_utils.NewScheduledPodLister(kubeClient, stopChannel)
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
 
 	// TODO(piosz): consider reseting this set once every few hours.
 	podsBeingProcessed := NewPodSet()
 
-	// As tolerations/taints feature changed from being specified in annotations
-	// to being specified in fields in Kubernetes 1.6, we need to make sure that
-	// any annotations that were created in the previous versions are removed.
-	releaseAllTaintsDeprecated(kubeClient, nodeLister)
-
-	releaseAllTaints(kubeClient, nodeLister, podsBeingProcessed)
-
 	for {
 		select {
 		case <-time.After(*housekeepingInterval):
 			{
-				allUnschedulablePods, err := unschedulablePodLister.List()
-				if err != nil {
-					glog.Errorf("Failed to list unscheduled pods: %v", err)
-					continue
-				}
 
 				allScheduledPods, err := scheduledPodLister.List()
 				if err != nil {
@@ -156,41 +131,6 @@ func main() {
 				}
 
 				workerNodePods := filterWorkerNodePods(kubeClient, allNodes, allScheduledPods, podsBeingProcessed)
-
-				criticalPods := filterCriticalPods(allUnschedulablePods, podsBeingProcessed)
-
-				if len(criticalPods) > 0 {
-					for _, pod := range criticalPods {
-						glog.Infof("Critical pod %s is unschedulable. Trying to find a spot for it.", podId(pod))
-						k8sApp := "unknown"
-						if l, found := pod.ObjectMeta.Labels["k8s-app"]; found {
-							k8sApp = l
-						}
-						metrics.UnschedulableCriticalPodsCount.WithLabelValues(k8sApp).Inc()
-						nodes, err := nodeLister.List()
-						if err != nil {
-							glog.Errorf("Failed to list nodes: %v", err)
-							continue
-						}
-
-						node := findNodeForPod(kubeClient, predicateChecker, nodes, pod)
-						if node == nil {
-							glog.Errorf("Pod %s can't be scheduled on any existing node.", podId(pod))
-							recorder.Eventf(pod, apiv1.EventTypeNormal, "PodDoestFitAnyNode",
-								"Critical pod %s doesn't fit on any node.", podId(pod))
-							continue
-						}
-						glog.Infof("Trying to place the pod on node %v", node.Name)
-
-						err = prepareNodeForPod(kubeClient, recorder, predicateChecker, node, pod)
-						if err != nil {
-							glog.Warningf("%+v", err)
-						} else {
-							podsBeingProcessed.Add(pod)
-							go waitForScheduled(kubeClient, podsBeingProcessed, pod)
-						}
-					}
-				}
 
 				if len(workerNodePods) > 0 {
 					for _, pod := range workerNodePods {
@@ -228,8 +168,6 @@ func main() {
 
 					}
 				}
-
-				releaseAllTaints(kubeClient, nodeLister, podsBeingProcessed)
 			}
 		}
 	}
@@ -288,133 +226,6 @@ func getTaintsFromNodeAnnotations(annotations map[string]string) ([]apiv1.Taint,
 	return taints, nil
 }
 
-func releaseAllTaintsDeprecated(client kube_client.Interface, nodeLister *kube_utils.ReadyNodeLister) {
-	glog.Infof("Removing all annotation taints because they are no longer supported.")
-	nodes, err := nodeLister.List()
-	if err != nil {
-		glog.Warningf("Cannot release taints - error while listing nodes: %v", err)
-		return
-	}
-	releaseTaintsOnNodesDeprecated(client, nodes)
-}
-
-func releaseTaintsOnNodesDeprecated(client kube_client.Interface, nodes []*apiv1.Node) {
-	for _, node := range nodes {
-		taints, err := getTaintsFromNodeAnnotations(node.Annotations)
-		if err != nil {
-			glog.Warningf("Error while getting Taints for node %v: %v", node.Name, err)
-			continue
-		}
-
-		newTaints := make([]apiv1.Taint, 0)
-		for _, taint := range taints {
-			if taint.Key == criticalAddonsOnlyTaintKey {
-				glog.Infof("Releasing taint %+v on node %v", taint, node.Name)
-			} else {
-				newTaints = append(newTaints, taint)
-			}
-		}
-
-		if len(newTaints) != len(taints) {
-			taintsJson, err := json.Marshal(newTaints)
-			if err != nil {
-				glog.Warningf("Error while releasing taints on node %v: %v", node.Name, err)
-				continue
-			}
-
-			node.Annotations[TaintsAnnotationKey] = string(taintsJson)
-			_, err = client.CoreV1().Nodes().Update(node)
-			if err != nil {
-				glog.Warningf("Error while releasing taints on node %v: %v", node.Name, err)
-			} else {
-				glog.Infof("Successfully released all taints on node %v", node.Name)
-			}
-		}
-	}
-}
-
-func releaseAllTaints(client kube_client.Interface, nodeLister *kube_utils.ReadyNodeLister, podsBeingProcessed *podSet) {
-	nodes, err := nodeLister.List()
-	if err != nil {
-		glog.Warningf("Cannot release taints - error while listing nodes: %v", err)
-		return
-	}
-	releaseTaintsOnNodes(client, nodes, podsBeingProcessed)
-}
-
-func releaseTaintsOnNodes(client kube_client.Interface, nodes []*apiv1.Node, podsBeingProcessed *podSet) {
-	for _, node := range nodes {
-		newTaints := make([]apiv1.Taint, 0)
-		for _, taint := range node.Spec.Taints {
-			if taint.Key == criticalAddonsOnlyTaintKey && !podsBeingProcessed.HasId(taint.Value) {
-				glog.Infof("Releasing taint %+v on node %v", taint, node.Name)
-			} else {
-				newTaints = append(newTaints, taint)
-			}
-		}
-
-		if len(newTaints) != len(node.Spec.Taints) {
-			node.Spec.Taints = newTaints
-			_, err := client.CoreV1().Nodes().Update(node)
-			if err != nil {
-				glog.Warningf("Error while releasing taints on node %v: %v", node.Name, err)
-			} else {
-				glog.Infof("Successfully released all taints on node %v", node.Name)
-			}
-		}
-	}
-}
-
-// The caller of this function must remove the taint if this function returns error.
-func prepareNodeForPod(client kube_client.Interface, recorder kube_record.EventRecorder, predicateChecker *simulator.PredicateChecker, originalNode *apiv1.Node, criticalPod *apiv1.Pod) error {
-	// Operate on a copy of the node to ensure pods running on the node will pass CheckPredicates below.
-	node, err := copyNode(originalNode)
-	if err != nil {
-		return fmt.Errorf("Error while copying node: %v", err)
-	}
-	err = addTaint(client, originalNode, podId(criticalPod))
-	if err != nil {
-		return fmt.Errorf("Error while adding taint: %v", err)
-	}
-
-	requiredPods, otherPods, err := groupPods(client, node)
-	if err != nil {
-		return err
-	}
-
-	nodeInfo := schedulercache.NewNodeInfo(requiredPods...)
-	nodeInfo.SetNode(node)
-
-	// check whether critical pod still fit
-	if err := predicateChecker.CheckPredicates(criticalPod, nodeInfo); err != nil {
-		return fmt.Errorf("Pod %s doesn't fit to node %v: %v", podId(criticalPod), node.Name, err)
-	}
-	requiredPods = append(requiredPods, criticalPod)
-	nodeInfo = schedulercache.NewNodeInfo(requiredPods...)
-	nodeInfo.SetNode(node)
-
-	for _, p := range otherPods {
-		if err := predicateChecker.CheckPredicates(p, nodeInfo); err != nil {
-			glog.Infof("Pod %s will be deleted in order to schedule critical pod %s.", podId(p), podId(criticalPod))
-			recorder.Eventf(p, apiv1.EventTypeNormal, "DeletedByRescheduler",
-				"Deleted by rescheduler in order to schedule critical pod %s.", podId(criticalPod))
-			// TODO(piosz): add better support of graceful deletion
-			delErr := client.CoreV1().Pods(p.Namespace).Delete(p.Name, metav1.NewDeleteOptions(10))
-			if delErr != nil {
-				return fmt.Errorf("Failed to delete pod %s: %v", podId(p), delErr)
-			}
-			metrics.DeletedPodsCount.Inc()
-		} else {
-			newPods := append(nodeInfo.Pods(), p)
-			nodeInfo = schedulercache.NewNodeInfo(newPods...)
-			nodeInfo.SetNode(node)
-		}
-	}
-
-	// TODO(piosz): how to reset scheduler backoff?
-	return nil
-}
-
 func deletePod(client kube_client.Interface, recorder kube_record.EventRecorder, pod *apiv1.Pod, node *apiv1.Node) error {
 	glog.Infof("Deleting pod %s", pod.Name)
 	recorder.Eventf(pod, apiv1.EventTypeNormal, "DeletedByRescheduler",
@@ -438,19 +249,6 @@ func copyNode(node *apiv1.Node) (*apiv1.Node, error) {
 	return copied, nil
 }
 
-func addTaint(client kube_client.Interface, node *apiv1.Node, value string) error {
-	node.Spec.Taints = append(node.Spec.Taints, apiv1.Taint{
-		Key:    criticalAddonsOnlyTaintKey,
-		Value:  value,
-		Effect: apiv1.TaintEffectNoSchedule,
-	})
-
-	if _, err := client.CoreV1().Nodes().Update(node); err != nil {
-		return err
-	}
-	return nil
-}
-
 // Currently the logic is to sort by the most requested cpu to try and fill fuller nodes first
 func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodes []*apiv1.Node, pod *apiv1.Pod) *apiv1.Node {
 	sort.Slice(nodes, func(i int, j int) bool {
@@ -466,11 +264,6 @@ func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.Pr
 	})
 
 	for _, originalNode := range nodes {
-		// ignore nodes with taints
-		if err := checkTaints(originalNode); err != nil {
-			glog.Warningf("Skipping node %v due to %v", originalNode.Name, err)
-		}
-
 		// Operate on a copy of the node to ensure pods running on the node will pass CheckPredicates below.
 		node, err := copyNode(originalNode)
 		if err != nil {
@@ -495,53 +288,6 @@ func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.Pr
 		}
 	}
 	return nil
-}
-
-func checkTaints(node *apiv1.Node) error {
-	for _, taint := range node.Spec.Taints {
-		if taint.Key == criticalAddonsOnlyTaintKey {
-			return fmt.Errorf("CriticalAddonsOnly taint with value: %v", taint.Value)
-		}
-	}
-	return nil
-}
-
-// groupPods divides pods running on <node> into those which can't be deleted and the others
-func groupPods(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod, []*apiv1.Pod, error) {
-	podsOnNode, err := client.CoreV1().Pods(apiv1.NamespaceAll).List(
-		metav1.ListOptions{FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node.Name}).String()})
-	if err != nil {
-		return []*apiv1.Pod{}, []*apiv1.Pod{}, err
-	}
-
-	requiredPods := make([]*apiv1.Pod, 0)
-	otherPods := make([]*apiv1.Pod, 0)
-	for i := range podsOnNode.Items {
-		pod := &podsOnNode.Items[i]
-
-		creatorRef, err := ca_drain.CreatorRefKind(pod)
-		if err != nil {
-			return []*apiv1.Pod{}, []*apiv1.Pod{}, err
-		}
-
-		if ca_drain.IsMirrorPod(pod) || creatorRef == "DaemonSet" || isCriticalPod(pod) {
-			requiredPods = append(requiredPods, pod)
-		} else {
-			otherPods = append(otherPods, pod)
-		}
-	}
-
-	return requiredPods, otherPods, nil
-}
-
-func filterCriticalPods(allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
-	criticalPods := []*apiv1.Pod{}
-	for _, pod := range allPods {
-		if isCriticalPod(pod) && !podsBeingProcessed.Has(pod) {
-			criticalPods = append(criticalPods, pod)
-		}
-	}
-	return criticalPods
 }
 
 func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
@@ -580,21 +326,6 @@ func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, 
 	return workerNodePods
 }
 
-func isCriticalPod(pod *apiv1.Pod) bool {
-	_, found := pod.ObjectMeta.Annotations[criticalPodAnnotation]
-	return found
-}
-
-func isWorkerNodePod(allNodes []*apiv1.Node, pod *apiv1.Pod) bool {
-	nodeName := pod.Spec.NodeName
-	node := getNodeByName(allNodes, nodeName)
-	if node == nil {
-		glog.Errorf("Failed to find a node named %v", nodeName)
-	}
-	_, found := node.ObjectMeta.Labels[workerNodeLabel]
-	return found
-}
-
 func isReplicaSetPod(pod *apiv1.Pod) bool {
 	return len(pod.ObjectMeta.OwnerReferences) > 0 && pod.ObjectMeta.OwnerReferences[0].Kind == "ReplicaSet"
 }
@@ -607,15 +338,6 @@ func isSpotNode(node *apiv1.Node) bool {
 func isWorkerNode(node *apiv1.Node) bool {
 	_, found := node.ObjectMeta.Labels[workerNodeLabel]
 	return found
-}
-
-func getNodeByName(allNodes []*apiv1.Node, nodeName string) *apiv1.Node {
-	for _, node := range allNodes {
-		if node.Name == nodeName {
-			return node
-		}
-	}
-	return nil
 }
 
 func getPodsOnNode(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod, error) {
