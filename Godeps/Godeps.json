@@ -1,10 +1,7 @@
 {
-	"ImportPath": "k8s.io/contrib/rescheduler",
-	"GoVersion": "go1.7",
+	"ImportPath": "github.com/pusher/spot-rescheduler",
+	"GoVersion": "go1.8",
 	"GodepVersion": "v79",
-	"Packages": [
-		"./..."
-	],
 	"Deps": [
 		{
 			"ImportPath": "bitbucket.org/ww/goautoneg",
@@ -1264,16 +1261,6 @@
 			"ImportPath": "k8s.io/client-go/util/workqueue",
 			"Comment": "v2.0.0-alpha.0-76-g876f134",
 			"Rev": "6500775c58c43486978291879ac9e1b0e9fc953f"
-		},
-		{
-			"ImportPath": "k8s.io/contrib/cluster-autoscaler/simulator",
-			"Comment": "cluster-autoscaler-0.4.0-605-g41498de4",
-			"Rev": "44c9cb04ba80303540a4114e35437237f3fb4383"
-		},
-		{
-			"ImportPath": "k8s.io/contrib/cluster-autoscaler/utils/drain",
-			"Comment": "cluster-autoscaler-0.4.0-605-g41498de4",
-			"Rev": "44c9cb04ba80303540a4114e35437237f3fb4383"
 		},
 		{
 			"ImportPath": "k8s.io/contrib/cluster-autoscaler/utils/kubernetes",
