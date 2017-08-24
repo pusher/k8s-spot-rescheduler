@@ -88,6 +88,7 @@ func main() {
 
 	glog.Infof("Running Rescheduler")
 
+	// Register metrics from metrics.go
 	go func() {
 		http.Handle("/metrics", prometheus.Handler())
 		err := http.ListenAndServe(*listenAddress, nil)
@@ -103,6 +104,7 @@ func main() {
 
 	stopChannel := make(chan struct{})
 
+	// Predicate checker from K8s scheduler works out if a Pod could schedule onto a node
 	predicateChecker, err := simulator.NewPredicateChecker(kubeClient, stopChannel)
 	if err != nil {
 		glog.Fatalf("Failed to create predicate checker: %v", err)
@@ -116,33 +118,40 @@ func main() {
 
 	for {
 		select {
+		// Run forever, every housekeepingInterval seconds
 		case <-time.After(*housekeepingInterval):
 			{
 
+				// All pods scheduled on nodes
 				allScheduledPods, err := scheduledPodLister.List()
 				if err != nil {
 					glog.Errorf("Failed to list scheduled pods: %v", err)
 					continue
 				}
 
+				// All nodes in the cluster
 				allNodes, err := nodeLister.List()
 				if err != nil {
 					glog.Errorf("Failed to list nodes: %v", err)
 					continue
 				}
 
+				// Get pods on worker nodes
 				workerNodePods := filterWorkerNodePods(kubeClient, allNodes, allScheduledPods, podsBeingProcessed)
 
 				if len(workerNodePods) > 0 {
+					// Consider each pod in turn
 					for _, pod := range workerNodePods {
 						glog.Infof("Found %s on a worker node", pod.Name)
 
+						// Get all nodes again
 						nodes, err := nodeLister.List()
 						if err != nil {
 							glog.Errorf("Failed to list nodes: %v", err)
 							continue
 						}
 
+						// Filter all nodes down to just spot instances
 						spotNodes := []*apiv1.Node{}
 						for _, node := range nodes {
 							if isSpotNode(node) {
@@ -159,6 +168,7 @@ func main() {
 							glog.Infof("Pod %s can be rescheduled, attempting to reschedule.", podId(pod))
 						}
 
+						// Delete the pod and wait for it to be rescheduled before continuing to the next pod
 						err = deletePod(kubeClient, recorder, pod, node)
 						if err != nil {
 							glog.Infof("Failed to delete %s; %s", pod.Name, err)
@@ -176,6 +186,8 @@ func main() {
 	}
 }
 
+// Should wait (up to the timeout) for a pod to be rescheduled
+// Blocker to slow down processing and make sure we only disturb one pod at a time
 func waitForScheduled(client kube_client.Interface, podsBeingProcessed *podSet, pod *apiv1.Pod) {
 	glog.Infof("Waiting for pod %s to be scheduled", podId(pod))
 	err := wait.Poll(time.Second, *podScheduledTimeout, func() (bool, error) {
@@ -194,6 +206,8 @@ func waitForScheduled(client kube_client.Interface, podsBeingProcessed *podSet, 
 	podsBeingProcessed.Remove(pod)
 }
 
+// Configure the kube client used to access the api, either from kubeconfig or
+//from pod environment if running in the cluster
 func createKubeClient(flags *flag.FlagSet, inCluster bool) (kube_client.Interface, error) {
 	var config *kube_restclient.Config
 	var err error
@@ -210,6 +224,7 @@ func createKubeClient(flags *flag.FlagSet, inCluster bool) (kube_client.Interfac
 	return kube_client.NewForConfigOrDie(config), nil
 }
 
+// Create an event broadcaster so that we can call events when we modify the system
 func createEventRecorder(client kube_client.Interface) kube_record.EventRecorder {
 	eventBroadcaster := kube_record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
@@ -217,7 +232,7 @@ func createEventRecorder(client kube_client.Interface) kube_record.EventRecorder
 	return eventBroadcaster.NewRecorder(api.Scheme, clientv1.EventSource{Component: "rescheduler"})
 }
 
-// copied from Kubernetes 1.5.4
+// This is unused? I don't know what it is... what is it doing here :(
 func getTaintsFromNodeAnnotations(annotations map[string]string) ([]apiv1.Taint, error) {
 	var taints []apiv1.Taint
 	if len(annotations) > 0 && annotations[TaintsAnnotationKey] != "" {
@@ -229,6 +244,7 @@ func getTaintsFromNodeAnnotations(annotations map[string]string) ([]apiv1.Taint,
 	return taints, nil
 }
 
+// Deletes a pod and broadcasts the event to the event recorder
 func deletePod(client kube_client.Interface, recorder kube_record.EventRecorder, pod *apiv1.Pod, node *apiv1.Node) error {
 	glog.Infof("Deleting pod %s", pod.Name)
 	recorder.Eventf(pod, apiv1.EventTypeNormal, "DeletedByRescheduler",
@@ -240,6 +256,7 @@ func deletePod(client kube_client.Interface, recorder kube_record.EventRecorder,
 	return nil
 }
 
+// Takes a copy of all of the details of the node
 func copyNode(node *apiv1.Node) (*apiv1.Node, error) {
 	objCopy, err := api.Scheme.DeepCopy(node)
 	if err != nil {
@@ -252,8 +269,12 @@ func copyNode(node *apiv1.Node) (*apiv1.Node, error) {
 	return copied, nil
 }
 
-// Currently the logic is to sort by the most requested cpu to try and fill fuller nodes first
+// Determines if any of the nodes meet the predicates that allow the Pod to be
+// scheduled on the node, and returns the node if it finds a suitable one.
+// Currently sorts nodes by most requested CPU in an attempt to fill fuller
+// nodes first (Attempting to bin pack)
 func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodes []*apiv1.Node, pod *apiv1.Pod) *apiv1.Node {
+	// Sort the nodes by CPU most requested first (Least spare CPU)
 	sort.Slice(nodes, func(i int, j int) bool {
 		iCPU, _, err := getNodeSpareCapacity(client, nodes[i])
 		if err != nil {
@@ -286,6 +307,7 @@ func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.Pr
 		// Pretend pod isn't scheduled
 		pod.Spec.NodeName = ""
 
+		// Check with the schedulers predicates to find a node to schedule on
 		if err := predicateChecker.CheckPredicates(pod, nodeInfo); err == nil {
 			return node
 		}
@@ -293,6 +315,9 @@ func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.Pr
 	return nil
 }
 
+// Genereates a list of Pods that are running on worker nodes
+// List is sorted such that pods come from emptier nodes first when being
+// considered for rescheduling
 func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
 	workerNodes := []*apiv1.Node{}
 	for _, node := range allNodes {
@@ -301,6 +326,7 @@ func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, 
 		}
 	}
 
+	// Sort nodes by least requested CPU first (Greatest spare CPU)
 	sort.Slice(workerNodes, func(i int, j int) bool {
 		iCPU, _, err := getNodeSpareCapacity(client, workerNodes[i])
 		if err != nil {
@@ -313,6 +339,7 @@ func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, 
 		return iCPU > jCPU
 	})
 
+	// Gets pods running on these nodes that are managed by a ReplicaSet
 	workerNodePods := []*apiv1.Pod{}
 	for _, node := range workerNodes {
 		podsOnNode, err := getPodsOnNode(client, node)
@@ -329,20 +356,24 @@ func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, 
 	return workerNodePods
 }
 
+// Determines if a pod is managed by a ReplicaSet
 func isReplicaSetPod(pod *apiv1.Pod) bool {
 	return len(pod.ObjectMeta.OwnerReferences) > 0 && pod.ObjectMeta.OwnerReferences[0].Kind == "ReplicaSet"
 }
 
+// Determines if a node has the spotNodeLabel assigned
 func isSpotNode(node *apiv1.Node) bool {
 	_, found := node.ObjectMeta.Labels[spotNodeLabel]
 	return found
 }
 
+// Determines if a node has the workerNodeLabel assigned
 func isWorkerNode(node *apiv1.Node) bool {
 	_, found := node.ObjectMeta.Labels[workerNodeLabel]
 	return found
 }
 
+// Gets a list of pods that are running on the given node
 func getPodsOnNode(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod, error) {
 	podsOnNode, err := client.CoreV1().Pods(apiv1.NamespaceAll).List(
 		metav1.ListOptions{FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node.Name}).String()})
@@ -357,6 +388,8 @@ func getPodsOnNode(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod
 	return pods, nil
 }
 
+// Works out spare CPU and Memory for a node and returns in MilliValues
+// (Pod requests are stored as MilliValues hence the return type here)
 func getNodeSpareCapacity(client kube_client.Interface, node *apiv1.Node) (int64, int64, error) {
 	nodeCPU := node.Status.Capacity.Cpu().MilliValue()
 	nodeMemory := node.Status.Capacity.Memory().MilliValue()
@@ -377,6 +410,8 @@ func getNodeSpareCapacity(client kube_client.Interface, node *apiv1.Node) (int64
 	return nodeCPU - CPURequests, nodeMemory - MemoryRequests, nil
 }
 
+// Returns the total requested CPU and Memory for all of the containers in a
+// given Pod. (Returned as MilliValues)
 func getPodRequests(pod *apiv1.Pod) (int64, int64) {
 	var CPUTotal, MemoryTotal int64 = 0, 0
 	if len(pod.Spec.Containers) > 0 {
