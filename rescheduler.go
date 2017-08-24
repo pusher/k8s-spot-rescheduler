@@ -25,15 +25,15 @@ import (
 	"sort"
 	"time"
 
-	simulator "github.com/pusher/spot-rescheduler/predicates"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
+	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
+	kube_utils "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	clientv1 "k8s.io/client-go/pkg/api/v1"
 	kube_restclient "k8s.io/client-go/rest"
 	kube_record "k8s.io/client-go/tools/record"
-	kube_utils "k8s.io/contrib/cluster-autoscaler/utils/kubernetes"
 	"k8s.io/kubernetes/pkg/api"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
@@ -101,12 +101,13 @@ func main() {
 
 	recorder := createEventRecorder(kubeClient)
 
-	predicateChecker, err := simulator.NewPredicateChecker(kubeClient)
+	stopChannel := make(chan struct{})
+
+	predicateChecker, err := simulator.NewPredicateChecker(kubeClient, stopChannel)
 	if err != nil {
 		glog.Fatalf("Failed to create predicate checker: %v", err)
 	}
 
-	stopChannel := make(chan struct{})
 	scheduledPodLister := kube_utils.NewScheduledPodLister(kubeClient, stopChannel)
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
 
