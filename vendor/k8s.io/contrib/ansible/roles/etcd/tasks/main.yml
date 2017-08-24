@@ -1,0 +1,19 @@
+---
+- name: Override etcd facts
+  include: override_facts.yml
+
+- name: Install etcd
+  include: install.yml
+  tags: install
+
+- name: Configure etcd
+  include: configure.yml
+  tags: configure
+
+- name: Start etcd
+  include: start.yml
+
+- name: Restart etcd
+  include: restart.yml
+  when: etcd_modified is not defined or etcd_started.changed == false
+  tags: restart
