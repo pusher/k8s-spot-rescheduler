@@ -592,3 +592,6 @@ import:
   - plugin/pkg/scheduler/metrics
   - plugin/pkg/scheduler/schedulercache
   - plugin/pkg/scheduler/util
+- package: k8s.io/autoscaler
+  subpackages:
+  - cluster-autoscaler/utils/kubernetes

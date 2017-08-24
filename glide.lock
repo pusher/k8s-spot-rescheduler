@@ -1,5 +1,5 @@
-hash: ba530fb425833701d1b411e64dc3aba2646b021b2b64859b3dfc064f036b9772
-updated: 2017-08-24T08:59:24.164477103+01:00
+hash: d68ff658e26c298c2694e157d3af7822954b5e0f427801ce062b902efa9b7f66
+updated: 2017-08-24T11:58:00.977497563+01:00
 imports:
 - name: bitbucket.org/ww/goautoneg
   version: 75cd24fc2f2c2a2088577d12123ddee5f54e0675
@@ -311,6 +311,10 @@ imports:
   - pkg/util/feature
   - pkg/util/flag
   - pkg/util/trace
+- name: k8s.io/autoscaler
+  version: 1358f0c41614968f5bd027a68e8e6566ff2bd98b
+  subpackages:
+  - cluster-autoscaler/utils/kubernetes
 - name: k8s.io/client-go
   version: 6500775c58c43486978291879ac9e1b0e9fc953f
   subpackages:
@@ -402,6 +406,8 @@ imports:
 - name: k8s.io/contrib
   version: 44c9cb04ba80303540a4114e35437237f3fb4383
   subpackages:
+  - cluster-autoscaler/simulator
+  - cluster-autoscaler/utils/drain
   - cluster-autoscaler/utils/kubernetes
 - name: k8s.io/kubernetes
   version: 49d1814b3a6ba59e1190d2b9ce5ad92ee98479cc
