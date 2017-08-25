@@ -112,7 +112,6 @@ func main() {
 		glog.Fatalf("Failed to create predicate checker: %v", err)
 	}
 
-	scheduledPodLister := kube_utils.NewScheduledPodLister(kubeClient, stopChannel)
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
 	podDisruptionBudgetLister := kube_utils.NewPodDisruptionBudgetLister(kubeClient, stopChannel)
 
@@ -125,13 +124,6 @@ func main() {
 		case <-time.After(*housekeepingInterval):
 			{
 
-				// All pods scheduled on nodes
-				allScheduledPods, err := scheduledPodLister.List()
-				if err != nil {
-					glog.Errorf("Failed to list scheduled pods: %v", err)
-					continue
-				}
-
 				// All nodes in the cluster
 				allNodes, err := nodeLister.List()
 				if err != nil {
@@ -139,28 +131,24 @@ func main() {
 					continue
 				}
 
+				// Filter all nodes down to just spot instances
+				spotNodes := []*apiv1.Node{}
+				workerNodes := []*apiv1.Node{}
+				for _, node := range allNodes {
+					if isSpotNode(node) {
+						spotNodes = append(spotNodes, node)
+					} else if isWorkerNode(node) {
+						workerNodes = append(workerNodes, node)
+					}
+				}
+
 				// Get pods on worker nodes
-				workerNodePods := filterWorkerNodePods(kubeClient, allNodes, allScheduledPods, podsBeingProcessed)
+				workerNodePods := getPodsOnNodes(kubeClient, workerNodes, podsBeingProcessed)
 
 				if len(workerNodePods) > 0 {
 					// Consider each pod in turn
 					for _, pod := range workerNodePods {
 						glog.Infof("Found %s on a worker node", pod.Name)
-
-						// Get all nodes again
-						nodes, err := nodeLister.List()
-						if err != nil {
-							glog.Errorf("Failed to list nodes: %v", err)
-							continue
-						}
-
-						// Filter all nodes down to just spot instances
-						spotNodes := []*apiv1.Node{}
-						for _, node := range nodes {
-							if isSpotNode(node) {
-								spotNodes = append(spotNodes, node)
-							}
-						}
 
 						// Works out if a spot node is available for rescheduling
 						node := findNodeForPod(kubeClient, predicateChecker, spotNodes, pod)
@@ -179,6 +167,7 @@ func main() {
 						}
 						if !allowance {
 							glog.Infof("Cannot reschedule %s, not enough pod disruption budget.", podId(pod))
+							continue
 						}
 
 						// Delete the pod and wait for it to be rescheduled before continuing to the next pod
@@ -331,21 +320,15 @@ func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.Pr
 // Genereates a list of Pods that are running on worker nodes
 // List is sorted such that pods come from emptier nodes first when being
 // considered for rescheduling
-func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
-	workerNodes := []*apiv1.Node{}
-	for _, node := range allNodes {
-		if isWorkerNode(node) {
-			workerNodes = append(workerNodes, node)
-		}
-	}
+func getPodsOnNodes(client kube_client.Interface, nodes []*apiv1.Node, podsBeingProcessed *podSet) []*apiv1.Pod {
 
 	// Sort nodes by least requested CPU first (Greatest spare CPU)
-	sort.Slice(workerNodes, func(i int, j int) bool {
-		iCPU, _, err := getNodeSpareCapacity(client, workerNodes[i])
+	sort.Slice(nodes, func(i int, j int) bool {
+		iCPU, _, err := getNodeSpareCapacity(client, nodes[i])
 		if err != nil {
 			glog.Errorf("Failed to find node capacity %v", err)
 		}
-		jCPU, _, err := getNodeSpareCapacity(client, workerNodes[j])
+		jCPU, _, err := getNodeSpareCapacity(client, nodes[j])
 		if err != nil {
 			glog.Errorf("Failed to find node capacity %v", err)
 		}
@@ -354,7 +337,7 @@ func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, 
 
 	// Gets pods running on these nodes that are managed by a ReplicaSet
 	workerNodePods := []*apiv1.Pod{}
-	for _, node := range workerNodes {
+	for _, node := range nodes {
 		podsOnNode, err := getPodsOnNode(client, node)
 		if err != nil {
 			glog.Errorf("Failed to find pods on %v", node.Name)
