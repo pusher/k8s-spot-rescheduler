@@ -1,13 +1,24 @@
 box: busybox
+
+# Kubernetes takes a long time to download
+no-response-timeout: 10
+
 build:
-  box: golang:1.8.3
+  box: golang:1.8.3-alpine3.6
   steps:
   - script:
-        name: Copy source to GOPATH
-        code: |
-          mv vendor/* /go/src/
-          mkdir -p /go/src/github.com/pusher/spot-rescheduler
-          cp -R . /go/src/github.com/pusher/spot-rescheduler
+      name: Install Go and Glide dependencies
+      code: |
+        apk add --update bash openssh git mercurial
+  - script:
+      name: Install Glide
+      code: |
+        go get github.com/Masterminds/glide
+  - wercker/setup-go-workspace:
+      package-dir: github.com/pusher/spot-rescheduler
+  - script:
+      name: Fetch dependencies
+      code: glide --home $WERCKER_CACHE_DIR/.glide install -v
   - script:
       name: go build
       code: GOPATH=/go GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o rescheduler
