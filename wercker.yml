@@ -29,8 +29,8 @@ build:
 push-to-ecr:
   steps:
   - script:
-    name: Copy binary
-    code: cp rescheduler /
+      name: Copy binary
+      code: cp rescheduler /
   - internal/docker-push:
       aws-access-key: $AWS_ACCESS_KEY_ID
       aws-secret-key: $AWS_SECRET_ACCESS_KEY
@@ -42,8 +42,8 @@ push-to-ecr:
 
 deploy-to-kubernetes:
   steps:
-    - kubectl:
-        server: $KUBERNETES_MASTER
-        token: $KUBERNETES_TOKEN
-        insecure-skip-tls-verify: true
-        command: set image -n kube-system deployment spot-rescheduler spot-rescheduler=$CONTAINER_IMAGE:$WERCKER_GIT_COMMIT
+  - kubectl:
+      server: $KUBERNETES_MASTER
+      token: $KUBERNETES_TOKEN
+      insecure-skip-tls-verify: true
+      command: set image -n kube-system deployment spot-rescheduler spot-rescheduler=$CONTAINER_IMAGE:$WERCKER_GIT_COMMIT
