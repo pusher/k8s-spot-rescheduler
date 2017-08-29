@@ -18,3 +18,7 @@
 
 # Project-local vendor folder
 vendor/
+
+# Kubernetes config
+kubeconfig
+credentials/
