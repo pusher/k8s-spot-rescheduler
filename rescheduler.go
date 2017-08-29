@@ -27,6 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
 	kube_utils "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
@@ -36,6 +37,7 @@ import (
 	kube_record "k8s.io/client-go/tools/record"
 	"k8s.io/kubernetes/pkg/api"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
+	"k8s.io/kubernetes/pkg/apis/policy/v1beta1"
 	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	kubectl_util "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
@@ -112,6 +114,7 @@ func main() {
 
 	scheduledPodLister := kube_utils.NewScheduledPodLister(kubeClient, stopChannel)
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
+	podDisruptionBudgetLister := kube_utils.NewPodDisruptionBudgetLister(kubeClient, stopChannel)
 
 	// TODO(piosz): consider reseting this set once every few hours.
 	podsBeingProcessed := NewPodSet()
@@ -166,6 +169,16 @@ func main() {
 							continue
 						} else {
 							glog.Infof("Pod %s can be rescheduled, attempting to reschedule.", podId(pod))
+						}
+
+						// Wokr out if a PDB would be broken if we delted the pod
+						allowance, err := havePodDisruptionAllowance(podDisruptionBudgetLister, pod)
+						if err != nil {
+							glog.Errorf("Error while looking for PodDisruptionBudgets, %v", err)
+							continue
+						}
+						if !allowance {
+							glog.Infof("Cannot reschedule %s, not enough pod disruption budget.", podId(pod))
 						}
 
 						// Delete the pod and wait for it to be rescheduled before continuing to the next pod
@@ -424,4 +437,44 @@ func getPodRequests(pod *apiv1.Pod) (int64, int64) {
 		}
 	}
 	return CPUTotal, MemoryTotal
+}
+
+// Works out if there is allowance in a pod's disruption budgets for it to be delted
+func havePodDisruptionAllowance(lister *kube_utils.PodDisruptionBudgetLister, pod *apiv1.Pod) (bool, error) {
+	pdbs, err := getPodPodDisruptionBudgets(lister, pod)
+	for _, pdb := range pdbs {
+		if pdb.Status.PodDisruptionsAllowed < 1 {
+			return false, err
+		}
+	}
+	return true, err
+}
+
+// gets PodDisruptionBudgets associated with the given pod
+func getPodPodDisruptionBudgets(lister *kube_utils.PodDisruptionBudgetLister, pod *apiv1.Pod) ([]*v1beta1.PodDisruptionBudget, error) {
+	if len(pod.Labels) == 0 {
+		return nil, fmt.Errorf("No PodDisruptionBudgets found for pod %v because it has no labels", pod.Name)
+	}
+
+	allPDBs, err := lister.List()
+	if err != nil {
+		return make([]*v1beta1.PodDisruptionBudget, 0), err
+	}
+
+	var selector labels.Selector
+
+	pdbs := make([]*v1beta1.PodDisruptionBudget, 0)
+	for _, pdb := range allPDBs {
+		selector, err = metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
+		if err != nil {
+			glog.Warningf("invalid selector: %v", err)
+			continue
+		}
+		// If a PDB with a nil or empty selector creeps in, it should match nothing, not everything.
+		if selector.Empty() || !selector.Matches(labels.Set(pod.Labels)) {
+			continue
+		}
+		pdbs = append(pdbs, pdb)
+	}
+	return pdbs, nil
 }

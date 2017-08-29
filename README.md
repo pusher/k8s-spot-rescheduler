@@ -26,13 +26,13 @@ For example, it could also be used to allow controller nodes to take up slack wh
   * MaxEBSVolumeCount
   * NoVolumeZoneConflict
   * ready
+* Checks PodDisruptionBudgets before deleting any pod
 * Delete Pods from on-demand instances if there is space free on spot-instances
 
 
 ### Doesn't
 * Schedule pods (The default scheduler handles this)
 * Scale down empty nodes on your cloud provider (Try the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)))
-* Observe PodDisruptionBudgets (On the [TODO](#todo))
 
 ## Deployment
 
@@ -94,4 +94,3 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 * Add spacial limits - Don't consider spot instances with less than X% spare resource? Don't consider worker instances with less than X% requested? (Might be cleaned up by autoscaler anyway?)
 * Fix `waitForReschedule` method. Doesn't actually work at present, needs to look for new Pod in ReplicaSet.
 * Ensure we don't take any action while Pods are Unschedulable - We should let the system stabilise before we start moving things around
-* Respect PodDisruptionBudgets
