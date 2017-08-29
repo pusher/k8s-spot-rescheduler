@@ -1,1 +1,0 @@
-This directory has moved to [https://github.com/kubernetes/test-infra/tree/master/mungegithub](https://github.com/kubernetes/test-infra/tree/master/mungegithub)

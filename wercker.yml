@@ -1,13 +1,24 @@
 box: busybox
+
+# Kubernetes takes a long time to download
+no-response-timeout: 10
+
 build:
-  box: golang:1.8.3
+  box: golang:1.8.3-alpine3.6
   steps:
   - script:
-        name: Copy source to GOPATH
-        code: |
-          mv vendor/* /go/src/
-          mkdir -p /go/src/github.com/pusher/spot-rescheduler
-          cp -R . /go/src/github.com/pusher/spot-rescheduler
+      name: Install Go and Glide dependencies
+      code: |
+        apk add --update bash openssh git mercurial
+  - script:
+      name: Install Glide
+      code: |
+        go get github.com/Masterminds/glide
+  - wercker/setup-go-workspace:
+      package-dir: github.com/pusher/spot-rescheduler
+  - script:
+      name: Fetch dependencies
+      code: glide --home $WERCKER_CACHE_DIR/.glide install -v
   - script:
       name: go build
       code: GOPATH=/go GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o rescheduler
@@ -18,8 +29,8 @@ build:
 push-to-ecr:
   steps:
   - script:
-    name: Copy binary
-    code: cp rescheduler /
+      name: Copy binary
+      code: cp rescheduler /
   - internal/docker-push:
       aws-access-key: $AWS_ACCESS_KEY_ID
       aws-secret-key: $AWS_SECRET_ACCESS_KEY
@@ -31,8 +42,8 @@ push-to-ecr:
 
 deploy-to-kubernetes:
   steps:
-    - kubectl:
-        server: $KUBERNETES_MASTER
-        token: $KUBERNETES_TOKEN
-        insecure-skip-tls-verify: true
-        command: set image -n kube-system deployment spot-rescheduler spot-rescheduler=$CONTAINER_IMAGE:$WERCKER_GIT_COMMIT
+  - kubectl:
+      server: $KUBERNETES_MASTER
+      token: $KUBERNETES_TOKEN
+      insecure-skip-tls-verify: true
+      command: set image -n kube-system deployment spot-rescheduler spot-rescheduler=$CONTAINER_IMAGE:$WERCKER_GIT_COMMIT
