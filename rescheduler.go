@@ -26,7 +26,6 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
@@ -131,57 +130,49 @@ func main() {
 					continue
 				}
 
-				// Filter all nodes down to just spot instances
-				spotNodes := []*apiv1.Node{}
-				workerNodes := []*apiv1.Node{}
-				for _, node := range allNodes {
-					if isSpotNode(node) {
-						spotNodes = append(spotNodes, node)
-					} else if isWorkerNode(node) {
-						workerNodes = append(workerNodes, node)
-					}
+				nodeMap, err := newNodeMap(kubeClient, allNodes)
+				if err != nil {
+					glog.Errorf("Failed to build node map; %v", err)
+					continue
 				}
 
-				// Get pods on worker nodes
-				workerNodePods := getPodsOnNodes(kubeClient, workerNodes, podsBeingProcessed)
+				onDemandNodeInfos := nodeMap[onDemand]
+				spotNodeInfos := nodeMap[spot]
 
-				if len(workerNodePods) > 0 {
+				for _, nodeInfo := range onDemandNodeInfos {
+					if len(nodeInfo.pods) == 0 {
+						glog.Infof("No pods on %s, skipping.", nodeInfo.node.Name)
+						continue
+					}
+
+					nodePlan, err := spotNodeInfos.deepCopy(kubeClient)
+					if err != nil {
+						glog.Errorf("Failed to build plan; %v", err)
+						continue
+					}
+
+					var unmoveablePods bool = false
+					glog.Infof("Considering %s for removal", nodeInfo.node.Name)
 					// Consider each pod in turn
-					for _, pod := range workerNodePods {
-						glog.Infof("Found %s on a worker node", pod.Name)
+					for _, pod := range nodeInfo.pods {
 
 						// Works out if a spot node is available for rescheduling
-						node := findNodeForPod(kubeClient, predicateChecker, spotNodes, pod)
-						if node == nil {
-							glog.Infof("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
-							continue
+						spotNodeInfo := findSpotNodeForPod(kubeClient, predicateChecker, nodePlan, pod)
+						if spotNodeInfo == nil {
+							glog.Infof("Pod %s can't be rescheduled on any existing spot node. This node cannot be drained.", podId(pod))
+							unmoveablePods = true
+							break
 						} else {
-							glog.Infof("Pod %s can be rescheduled, attempting to reschedule.", podId(pod))
+							glog.Infof("Pod %s can be rescheduled, adding to plan.", podId(pod))
+							spotNodeInfo.addPod(kubeClient, pod)
 						}
-
-						// Wokr out if a PDB would be broken if we delted the pod
-						allowance, err := havePodDisruptionAllowance(podDisruptionBudgetLister, pod)
-						if err != nil {
-							glog.Errorf("Error while looking for PodDisruptionBudgets, %v", err)
-							continue
-						}
-						if !allowance {
-							glog.Infof("Cannot reschedule %s, not enough pod disruption budget.", podId(pod))
-							continue
-						}
-
-						// Delete the pod and wait for it to be rescheduled before continuing to the next pod
-						err = deletePod(kubeClient, recorder, pod, node)
-						if err != nil {
-							glog.Infof("Failed to delete %s; %s", pod.Name, err)
-						} else {
-							podsBeingProcessed.Add(pod)
-							go waitForScheduled(kubeClient, podsBeingProcessed, pod)
-						}
-
 					}
-				} else {
-					glog.Infof("No pods to be considered for rescheduling.")
+
+					if !unmoveablePods {
+						glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.node.Name)
+						// Drain the node
+						break
+					}
 				}
 			}
 		}
@@ -275,43 +266,17 @@ func copyNode(node *apiv1.Node) (*apiv1.Node, error) {
 // scheduled on the node, and returns the node if it finds a suitable one.
 // Currently sorts nodes by most requested CPU in an attempt to fill fuller
 // nodes first (Attempting to bin pack)
-func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodes []*apiv1.Node, pod *apiv1.Pod) *apiv1.Node {
-	// Sort the nodes by CPU most requested first (Least spare CPU)
-	sort.Slice(nodes, func(i int, j int) bool {
-		iCPU, _, err := getNodeSpareCapacity(client, nodes[i])
-		if err != nil {
-			glog.Errorf("Failed to find node capacity %v", err)
-		}
-		jCPU, _, err := getNodeSpareCapacity(client, nodes[j])
-		if err != nil {
-			glog.Errorf("Failed to find node capacity %v", err)
-		}
-		return iCPU < jCPU
-	})
-
-	for _, originalNode := range nodes {
-		// Operate on a copy of the node to ensure pods running on the node will pass CheckPredicates below.
-		node, err := copyNode(originalNode)
-		if err != nil {
-			glog.Errorf("Error while copying node: %v", err)
-			continue
-		}
-
-		podsOnNode, err := getPodsOnNode(client, node)
-		if err != nil {
-			glog.Warningf("Skipping node %v due to error: %v", node.Name, err)
-			continue
-		}
-
-		nodeInfo := schedulercache.NewNodeInfo(podsOnNode...)
-		nodeInfo.SetNode(node)
+func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos []*NodeInfo, pod *apiv1.Pod) *NodeInfo {
+	for _, nodeInfo := range nodeInfos {
+		kubeNodeInfo := schedulercache.NewNodeInfo(nodeInfo.pods...)
+		kubeNodeInfo.SetNode(nodeInfo.node)
 
 		// Pretend pod isn't scheduled
 		pod.Spec.NodeName = ""
 
 		// Check with the schedulers predicates to find a node to schedule on
-		if err := predicateChecker.CheckPredicates(pod, nodeInfo); err == nil {
-			return node
+		if err := predicateChecker.CheckPredicates(pod, kubeNodeInfo); err == nil {
+			return nodeInfo
 		}
 	}
 	return nil
@@ -355,33 +320,6 @@ func getPodsOnNodes(client kube_client.Interface, nodes []*apiv1.Node, podsBeing
 // Determines if a pod is managed by a ReplicaSet
 func isReplicaSetPod(pod *apiv1.Pod) bool {
 	return len(pod.ObjectMeta.OwnerReferences) > 0 && pod.ObjectMeta.OwnerReferences[0].Kind == "ReplicaSet"
-}
-
-// Determines if a node has the spotNodeLabel assigned
-func isSpotNode(node *apiv1.Node) bool {
-	_, found := node.ObjectMeta.Labels[spotNodeLabel]
-	return found
-}
-
-// Determines if a node has the workerNodeLabel assigned
-func isWorkerNode(node *apiv1.Node) bool {
-	_, found := node.ObjectMeta.Labels[workerNodeLabel]
-	return found
-}
-
-// Gets a list of pods that are running on the given node
-func getPodsOnNode(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod, error) {
-	podsOnNode, err := client.CoreV1().Pods(apiv1.NamespaceAll).List(
-		metav1.ListOptions{FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node.Name}).String()})
-	if err != nil {
-		return []*apiv1.Pod{}, err
-	}
-
-	pods := make([]*apiv1.Pod, 0)
-	for i := range podsOnNode.Items {
-		pods = append(pods, &podsOnNode.Items[i])
-	}
-	return pods, nil
 }
 
 // Works out spare CPU and Memory for a node and returns in MilliValues
