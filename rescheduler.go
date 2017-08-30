@@ -145,7 +145,7 @@ func main() {
 						continue
 					}
 
-					nodePlan, err := spotNodeInfos.deepCopy(kubeClient)
+					nodePlan, err := spotNodeInfos.copyNodeInfos(kubeClient)
 					if err != nil {
 						glog.Errorf("Failed to build plan; %v", err)
 						continue

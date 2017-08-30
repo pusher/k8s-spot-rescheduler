@@ -130,7 +130,7 @@ func isWorkerNode(node *apiv1.Node) bool {
 	return found
 }
 
-func (n NodeInfoArray) deepCopy(client kube_client.Interface) (NodeInfoArray, error) {
+func (n NodeInfoArray) copyNodeInfos(client kube_client.Interface) (NodeInfoArray, error) {
 	var arr NodeInfoArray
 	for _, node := range n {
 		nodeInfo, err := newNodeInfo(client, node.node)
