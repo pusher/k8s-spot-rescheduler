@@ -122,6 +122,7 @@ func main() {
 		// Run forever, every housekeepingInterval seconds
 		case <-time.After(*housekeepingInterval):
 			{
+				glog.Info("Starting node processing.")
 
 				// All nodes in the cluster
 				allNodes, err := nodeLister.List()
@@ -130,28 +131,37 @@ func main() {
 					continue
 				}
 
+				// Build a map of nodeInfo structs
 				nodeMap, err := newNodeMap(kubeClient, allNodes)
 				if err != nil {
 					glog.Errorf("Failed to build node map; %v", err)
 					continue
 				}
 
+				// Get onDemand and spot nodeInfos
 				onDemandNodeInfos := nodeMap[onDemand]
 				spotNodeInfos := nodeMap[spot]
 
+				// Go through each onDemand node in turn
+				// Check each pod to see if it can be moved
+				// In the case that all can be moved, drain the node
 				for _, nodeInfo := range onDemandNodeInfos {
 					if len(nodeInfo.pods) == 0 {
 						glog.Infof("No pods on %s, skipping.", nodeInfo.node.Name)
 						continue
 					}
 
+					// Create a copy of the spotNodeInfos so that we can modify the list
+					// of pods within this node's iteration only
 					nodePlan, err := spotNodeInfos.copyNodeInfos(kubeClient)
 					if err != nil {
 						glog.Errorf("Failed to build plan; %v", err)
 						continue
 					}
 
+					// Variable to guard against draining node not fit for draining
 					var unmoveablePods bool = false
+
 					glog.Infof("Considering %s for removal", nodeInfo.node.Name)
 					// Consider each pod in turn
 					for _, pod := range nodeInfo.pods {
@@ -174,6 +184,8 @@ func main() {
 						break
 					}
 				}
+
+				glog.Info("Finished processing nodes.")
 			}
 		}
 	}
