@@ -173,7 +173,7 @@ func main() {
 							unmoveablePods = true
 							break
 						} else {
-							glog.Infof("Pod %s can be rescheduled, adding to plan.", podId(pod))
+							glog.Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.node.ObjectMeta.Name)
 							spotNodeInfo.addPod(kubeClient, pod)
 						}
 					}
