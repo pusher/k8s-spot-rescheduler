@@ -27,7 +27,7 @@ const (
 
 func evictPod(podToEvict *apiv1.Pod, client kube_client.Interface, recorder kube_record.EventRecorder,
 	maxGratefulTerminationSec int, retryUntil time.Time, waitBetweenRetries time.Duration) error {
-	recorder.Eventf(podToEvict, apiv1.EventTypeNormal, "Rescheduler", "deleting pod for node scale down")
+	recorder.Eventf(podToEvict, apiv1.EventTypeNormal, "Rescheduler", "deleting pod from on-demand node")
 	maxGraceful64 := int64(maxGratefulTerminationSec)
 	var lastError error
 	for first := true; first || time.Now().Before(retryUntil); time.Sleep(waitBetweenRetries) {
@@ -47,7 +47,7 @@ func evictPod(podToEvict *apiv1.Pod, client kube_client.Interface, recorder kube
 		}
 	}
 	glog.Errorf("Failed to evict pod %s, error: %v", podToEvict.Name, lastError)
-	recorder.Eventf(podToEvict, apiv1.EventTypeWarning, "ReschedulerFailed", "failed to delete pod for ScaleDown")
+	recorder.Eventf(podToEvict, apiv1.EventTypeWarning, "ReschedulerFailed", "failed to delete pod from on-demand node")
 	return fmt.Errorf("Failed to evict pod %s/%s within allowed timeout (last error: %v)", podToEvict.Namespace, podToEvict.Name, lastError)
 }
 
@@ -59,7 +59,7 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 	drainSuccessful := false
 	toEvict := len(pods)
 	if err := deletetaint.MarkToBeDeleted(node, client); err != nil {
-		recorder.Eventf(node, apiv1.EventTypeWarning, "ReschedulerFailed", "failed to mark the node as toBeDeleted/unschedulable: %v", err)
+		recorder.Eventf(node, apiv1.EventTypeWarning, "ReschedulerFailed", "failed to mark the node as draining/unschedulable: %v", err)
 		return err
 	}
 
@@ -71,7 +71,7 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 		}
 	}()
 
-	recorder.Eventf(node, apiv1.EventTypeNormal, "Rescheduler", "marked the node as toBeDeleted/unschedulable")
+	recorder.Eventf(node, apiv1.EventTypeNormal, "Rescheduler", "marked the node as draining/unschedulable")
 
 	retryUntil := time.Now().Add(maxPodEvictionTime)
 	confirmations := make(chan error, toEvict)
@@ -117,6 +117,7 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 			glog.V(1).Infof("All pods removed from %s", node.Name)
 			// Let the defered function know there is no need for cleanup
 			drainSuccessful = true
+			recorder.Eventf(node, apiv1.EventTypeNormal, "Rescheduler", "marked the node as drained/schedulable")
 			deletetaint.CleanToBeDeleted(node, client)
 			return nil
 		}
