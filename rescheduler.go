@@ -25,6 +25,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/pusher/spot-rescheduler/drain"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -181,6 +182,10 @@ func main() {
 					if !unmoveablePods {
 						glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.node.Name)
 						// Drain the node
+						err := drain.DrainNode(nodeInfo.node, nodeInfo.pods, kubeClient, recorder, 60, drain.MaxPodEvictionTime, drain.EvictionRetryTime)
+						if err != nil {
+							glog.Errorf("Failed to drain node: %v", err)
+						}
 						break
 					}
 				}
