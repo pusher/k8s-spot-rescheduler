@@ -163,6 +163,7 @@ func main() {
 						continue
 					}
 
+					// Get a list of pods that we would need to move onto other nodes
 					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.pods, allPDBs, false, false, false, false, nil, 0, time.Now())
 					if err != nil {
 						glog.Errorf("Failed to get pods for consideration: %v", err)
@@ -193,9 +194,10 @@ func main() {
 						}
 					}
 
+					// If no unmoveable pods were found, drain node
 					if !unmoveablePods {
 						glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.node.Name)
-						// Drain the node
+						// Drain the node - places eviction on each pod moving them in turn.
 						err := drain.DrainNode(nodeInfo.node, podsForDeletion, kubeClient, recorder, 60, drain.MaxPodEvictionTime, drain.EvictionRetryTime)
 						if err != nil {
 							glog.Errorf("Failed to drain node: %v", err)
