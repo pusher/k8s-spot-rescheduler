@@ -115,7 +115,7 @@ func main() {
 	podDisruptionBudgetLister := kube_utils.NewPodDisruptionBudgetLister(kubeClient, stopChannel)
 
 	// TODO(piosz): consider reseting this set once every few hours.
-	podsBeingProcessed := NewPodSet()
+	//podsBeingProcessed := NewPodSet()
 
 	for {
 		select {
