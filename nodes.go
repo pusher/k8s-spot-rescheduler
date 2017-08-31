@@ -110,10 +110,8 @@ func calculateRequestedCPU(client kube_client.Interface, pods []*apiv1.Pod) int6
 // (Returned as MilliValues)
 func getPodCPURequests(pod *apiv1.Pod) int64 {
 	var CPUTotal int64 = 0
-	if len(pod.Spec.Containers) > 0 {
-		for _, container := range pod.Spec.Containers {
-			CPUTotal += container.Resources.Requests.Cpu().MilliValue()
-		}
+	for _, container := range pod.Spec.Containers {
+		CPUTotal += container.Resources.Requests.Cpu().MilliValue()
 	}
 	return CPUTotal
 }
