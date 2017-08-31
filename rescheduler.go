@@ -154,10 +154,6 @@ func main() {
 				// Check each pod to see if it can be moved
 				// In the case that all can be moved, drain the node
 				for _, nodeInfo := range onDemandNodeInfos {
-					if len(nodeInfo.pods) == 0 {
-						glog.Infof("No pods on %s, skipping.", nodeInfo.node.Name)
-						continue
-					}
 
 					// Create a copy of the spotNodeInfos so that we can modify the list
 					// of pods within this node's iteration only
@@ -174,6 +170,7 @@ func main() {
 					}
 					if len(podsForDeletion) < 1 {
 						// Nothing to do here
+						glog.Infof("No pods on %s, skipping.", nodeInfo.node.Name)
 						continue
 					}
 
