@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
+	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
 	kube_utils "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	clientv1 "k8s.io/client-go/pkg/api/v1"
@@ -139,6 +140,14 @@ func main() {
 					continue
 				}
 
+				// Get PodDisruptionBudgets
+				// All nodes in the cluster
+				allPDBs, err := podDisruptionBudgetLister.List()
+				if err != nil {
+					glog.Errorf("Failed to list PDBs: %v", err)
+					continue
+				}
+
 				// Get onDemand and spot nodeInfos
 				onDemandNodeInfos := nodeMap[onDemand]
 				spotNodeInfos := nodeMap[spot]
@@ -160,12 +169,22 @@ func main() {
 						continue
 					}
 
+					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.pods, allPDBs, false, false, false, false, nil, 0, time.Now())
+					if err != nil {
+						glog.Errorf("Failed to get pods for consideration: %v", err)
+						continue
+					}
+					if len(podsForDeletion) < 1 {
+						// Nothing to do here
+						continue
+					}
+
 					// Variable to guard against draining node not fit for draining
 					var unmoveablePods bool = false
 
 					glog.Infof("Considering %s for removal", nodeInfo.node.Name)
 					// Consider each pod in turn
-					for _, pod := range nodeInfo.pods {
+					for _, pod := range podsForDeletion {
 
 						// Works out if a spot node is available for rescheduling
 						spotNodeInfo := findSpotNodeForPod(kubeClient, predicateChecker, nodePlan, pod)
@@ -182,7 +201,7 @@ func main() {
 					if !unmoveablePods {
 						glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.node.Name)
 						// Drain the node
-						err := drain.DrainNode(nodeInfo.node, nodeInfo.pods, kubeClient, recorder, 60, drain.MaxPodEvictionTime, drain.EvictionRetryTime)
+						err := drain.DrainNode(nodeInfo.node, podsForDeletion, kubeClient, recorder, 60, drain.MaxPodEvictionTime, drain.EvictionRetryTime)
 						if err != nil {
 							glog.Errorf("Failed to drain node: %v", err)
 						}
