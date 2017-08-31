@@ -78,7 +78,7 @@ func newNodeInfo(client kube_client.Interface, node *apiv1.Node) (*NodeInfo, err
 func (n *NodeInfo) addPod(client kube_client.Interface, pod *apiv1.Pod) {
 	n.pods = append(n.pods, pod)
 	n.requestedCPU = calculateRequestedCPU(client, n.pods)
-	n.freeCPU = n.node.Status.Capacity.Cpu().MilliValue() - n.requestedCPU
+	n.freeCPU = n.node.Status.Allocatable.Cpu().MilliValue() - n.requestedCPU
 }
 
 // Gets a list of pods that are running on the given node
