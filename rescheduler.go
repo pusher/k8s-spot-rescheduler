@@ -152,6 +152,10 @@ func main() {
 				onDemandNodeInfos := nodeMap[onDemand]
 				spotNodeInfos := nodeMap[spot]
 
+				if len(onDemandNodeInfos) < 1 {
+					glog.Info("No nodes to process.")
+				}
+
 				// Go through each onDemand node in turn
 				// Check each pod to see if it can be moved
 				// In the case that all can be moved, drain the node
