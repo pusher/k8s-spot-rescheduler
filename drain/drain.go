@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/pusher/spot-rescheduler/metrics"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/deletetaint"
@@ -88,6 +89,8 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 		case err := <-confirmations:
 			if err != nil {
 				evictionErrs = append(evictionErrs, err)
+			} else {
+				metrics.UpdateEvictionsCount()
 			}
 		case <-time.After(retryUntil.Sub(time.Now()) + 5*time.Second):
 			return fmt.Errorf("Failed to drain node %s/%s: timeout when waiting for creating evictions", node.Namespace, node.Name)
