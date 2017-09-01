@@ -90,7 +90,6 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 
 * Sort pods on worker nodes by most requested CPU first
 * Add Prometheus metrics for number of pods on worker nodes and number of pods rescheduled (plus anything else that might be useful)
-* Make on-demand and spot instance labels into flags
 * Refactor 'worker' to 'onDemand' increase abstraction from Pusher systems
 * Add spacial limits - Don't consider spot instances with less than X% spare resource? Don't consider worker instances with less than X% requested? (Might be cleaned up by autoscaler anyway?)
 * Ensure we don't take any action while Pods are Unschedulable - We should let the system stabilise before we start moving things around
