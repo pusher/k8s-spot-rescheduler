@@ -52,6 +52,13 @@ func NewNodeMap(client kube_client.Interface, nodes []*apiv1.Node) (NodesMap, er
 		if err != nil {
 			return nil, err
 		}
+
+		sort.Slice(nodeInfo.Pods, func(i, j int) bool {
+			iCPU := getPodCPURequests(nodeInfo.Pods[i])
+			jCPU := getPodCPURequests(nodeInfo.Pods[j])
+			return iCPU > jCPU
+		})
+
 		switch true {
 		case isSpotNode(node):
 			nodeMap[Spot] = append(nodeMap[Spot], nodeInfo)
