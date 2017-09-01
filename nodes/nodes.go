@@ -1,4 +1,4 @@
-package main
+package nodes
 
 import (
 	"sort"
@@ -9,28 +9,42 @@ import (
 	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 )
 
-const (
-	onDemand NodeType = 0
-	spot     NodeType = 1
+var (
+	// OnDemandNodeLabel label for on-demand instances.
+	OnDemandNodeLabel = "node-role.kubernetes.io/worker"
+	// SpotNodeLabel label for spot instances.
+	SpotNodeLabel = "node-role.kubernetes.io/spot-worker"
+	// OnDemand key for on-demand instances of NodesMap.
+	OnDemand NodeType
+	// Spot key for spot instances of NodesMap.
+	Spot NodeType = 1
 )
 
+const ()
+
+// NodeInfo struct containing node and it's pods as well information
+// resources on the node.
 type NodeInfo struct {
-	node         *apiv1.Node
-	pods         []*apiv1.Pod
-	requestedCPU int64
-	freeCPU      int64
+	Node         *apiv1.Node
+	Pods         []*apiv1.Pod
+	RequestedCPU int64
+	FreeCPU      int64
 }
 
+// NodeType integer key for keying NodesMap.
 type NodeType int
 
+// NodeInfoArray array of NodeInfo pointers.
 type NodeInfoArray []*NodeInfo
 
+// NodesMap map of NodeInfoArray.
 type NodesMap map[NodeType]NodeInfoArray
 
-func newNodeMap(client kube_client.Interface, nodes []*apiv1.Node) (NodesMap, error) {
+// NewNodeMap creates a new NodesMap from a list of Nodes.
+func NewNodeMap(client kube_client.Interface, nodes []*apiv1.Node) (NodesMap, error) {
 	nodeMap := NodesMap{
-		onDemand: make([]*NodeInfo, 0),
-		spot:     make([]*NodeInfo, 0),
+		OnDemand: make([]*NodeInfo, 0),
+		Spot:     make([]*NodeInfo, 0),
 	}
 
 	for _, node := range nodes {
@@ -40,21 +54,21 @@ func newNodeMap(client kube_client.Interface, nodes []*apiv1.Node) (NodesMap, er
 		}
 		switch true {
 		case isSpotNode(node):
-			nodeMap[spot] = append(nodeMap[spot], nodeInfo)
+			nodeMap[Spot] = append(nodeMap[Spot], nodeInfo)
 			continue
 		case isWorkerNode(node):
-			nodeMap[onDemand] = append(nodeMap[onDemand], nodeInfo)
+			nodeMap[OnDemand] = append(nodeMap[OnDemand], nodeInfo)
 			continue
 		default:
 			continue
 		}
 	}
 
-	sort.Slice(nodeMap[spot], func(i, j int) bool {
-		return nodeMap[spot][i].requestedCPU > nodeMap[spot][j].requestedCPU
+	sort.Slice(nodeMap[Spot], func(i, j int) bool {
+		return nodeMap[Spot][i].RequestedCPU > nodeMap[Spot][j].RequestedCPU
 	})
-	sort.Slice(nodeMap[onDemand], func(i, j int) bool {
-		return nodeMap[onDemand][i].requestedCPU < nodeMap[onDemand][j].requestedCPU
+	sort.Slice(nodeMap[OnDemand], func(i, j int) bool {
+		return nodeMap[OnDemand][i].RequestedCPU < nodeMap[OnDemand][j].RequestedCPU
 	})
 
 	return nodeMap, nil
@@ -68,17 +82,18 @@ func newNodeInfo(client kube_client.Interface, node *apiv1.Node) (*NodeInfo, err
 	requestedCPU := calculateRequestedCPU(client, pods)
 
 	return &NodeInfo{
-		node:         node,
-		pods:         pods,
-		requestedCPU: requestedCPU,
-		freeCPU:      node.Status.Capacity.Cpu().MilliValue() - requestedCPU,
+		Node:         node,
+		Pods:         pods,
+		RequestedCPU: requestedCPU,
+		FreeCPU:      node.Status.Capacity.Cpu().MilliValue() - requestedCPU,
 	}, nil
 }
 
-func (n *NodeInfo) addPod(client kube_client.Interface, pod *apiv1.Pod) {
-	n.pods = append(n.pods, pod)
-	n.requestedCPU = calculateRequestedCPU(client, n.pods)
-	n.freeCPU = n.node.Status.Allocatable.Cpu().MilliValue() - n.requestedCPU
+// AddPod adds a pod to a NodeInfo and updates the relevant resource values.
+func (n *NodeInfo) AddPod(client kube_client.Interface, pod *apiv1.Pod) {
+	n.Pods = append(n.Pods, pod)
+	n.RequestedCPU = calculateRequestedCPU(client, n.Pods)
+	n.FreeCPU = n.Node.Status.Allocatable.Cpu().MilliValue() - n.RequestedCPU
 }
 
 // Gets a list of pods that are running on the given node
@@ -99,7 +114,7 @@ func getPodsOnNode(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod
 // Works out requested CPU for a collection of pods and returns it in MilliValue
 // (Pod requests are stored as MilliValues hence the return type here)
 func calculateRequestedCPU(client kube_client.Interface, pods []*apiv1.Pod) int64 {
-	var CPURequests int64 = 0
+	var CPURequests int64
 	for _, pod := range pods {
 		CPURequests += getPodCPURequests(pod)
 	}
@@ -109,7 +124,7 @@ func calculateRequestedCPU(client kube_client.Interface, pods []*apiv1.Pod) int6
 // Returns the total requested CPU  for all of the containers in a given Pod.
 // (Returned as MilliValues)
 func getPodCPURequests(pod *apiv1.Pod) int64 {
-	var CPUTotal int64 = 0
+	var CPUTotal int64
 	for _, container := range pod.Spec.Containers {
 		CPUTotal += container.Resources.Requests.Cpu().MilliValue()
 	}
@@ -118,20 +133,21 @@ func getPodCPURequests(pod *apiv1.Pod) int64 {
 
 // Determines if a node has the spotNodeLabel assigned
 func isSpotNode(node *apiv1.Node) bool {
-	_, found := node.ObjectMeta.Labels[spotNodeLabel]
+	_, found := node.ObjectMeta.Labels[SpotNodeLabel]
 	return found
 }
 
 // Determines if a node has the workerNodeLabel assigned
 func isWorkerNode(node *apiv1.Node) bool {
-	_, found := node.ObjectMeta.Labels[workerNodeLabel]
+	_, found := node.ObjectMeta.Labels[OnDemandNodeLabel]
 	return found
 }
 
-func (n NodeInfoArray) copyNodeInfos(client kube_client.Interface) (NodeInfoArray, error) {
+// CopyNodeInfos returns an array of copies of the NodeInfos in this array.
+func (n NodeInfoArray) CopyNodeInfos(client kube_client.Interface) (NodeInfoArray, error) {
 	var arr NodeInfoArray
 	for _, node := range n {
-		nodeInfo, err := newNodeInfo(client, node.node)
+		nodeInfo, err := newNodeInfo(client, node.Node)
 		if err != nil {
 			return nil, err
 		}

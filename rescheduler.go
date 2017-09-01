@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pusher/spot-rescheduler/drain"
+	"github.com/pusher/spot-rescheduler/nodes"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
 	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
 	kube_utils "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
@@ -43,8 +44,6 @@ import (
 )
 
 const (
-	workerNodeLabel = "node-role.kubernetes.io/worker"
-	spotNodeLabel   = "node-role.kubernetes.io/spot-worker"
 	// TaintsAnnotationKey represents the key of taints data (json serialized)
 	// in the Annotations of a Node.
 	TaintsAnnotationKey string = "scheduler.alpha.kubernetes.io/taints"
@@ -128,7 +127,7 @@ func main() {
 				}
 
 				// Build a map of nodeInfo structs
-				nodeMap, err := newNodeMap(kubeClient, allNodes)
+				nodeMap, err := nodes.NewNodeMap(kubeClient, allNodes)
 				if err != nil {
 					glog.Errorf("Failed to build node map; %v", err)
 					continue
@@ -143,8 +142,8 @@ func main() {
 				}
 
 				// Get onDemand and spot nodeInfos
-				onDemandNodeInfos := nodeMap[onDemand]
-				spotNodeInfos := nodeMap[spot]
+				onDemandNodeInfos := nodeMap[nodes.OnDemand]
+				spotNodeInfos := nodeMap[nodes.Spot]
 
 				if len(onDemandNodeInfos) < 1 {
 					glog.Info("No nodes to process.")
@@ -157,28 +156,28 @@ func main() {
 
 					// Create a copy of the spotNodeInfos so that we can modify the list
 					// of pods within this node's iteration only
-					nodePlan, err := spotNodeInfos.copyNodeInfos(kubeClient)
+					nodePlan, err := spotNodeInfos.CopyNodeInfos(kubeClient)
 					if err != nil {
 						glog.Errorf("Failed to build plan; %v", err)
 						continue
 					}
 
 					// Get a list of pods that we would need to move onto other nodes
-					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.pods, allPDBs, false, false, false, false, nil, 0, time.Now())
+					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, allPDBs, false, false, false, false, nil, 0, time.Now())
 					if err != nil {
 						glog.Errorf("Failed to get pods for consideration: %v", err)
 						continue
 					}
 					if len(podsForDeletion) < 1 {
 						// Nothing to do here
-						glog.Infof("No pods on %s, skipping.", nodeInfo.node.Name)
+						glog.Infof("No pods on %s, skipping.", nodeInfo.Node.Name)
 						continue
 					}
 
 					// Variable to guard against draining node not fit for draining
 					var unmoveablePods bool = false
 
-					glog.Infof("Considering %s for removal", nodeInfo.node.Name)
+					glog.Infof("Considering %s for removal", nodeInfo.Node.Name)
 					// Consider each pod in turn
 					for _, pod := range podsForDeletion {
 
@@ -189,16 +188,16 @@ func main() {
 							unmoveablePods = true
 							break
 						} else {
-							glog.Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.node.ObjectMeta.Name)
-							spotNodeInfo.addPod(kubeClient, pod)
+							glog.Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.Node.ObjectMeta.Name)
+							spotNodeInfo.AddPod(kubeClient, pod)
 						}
 					}
 
 					// If no unmoveable pods were found, drain node
 					if !unmoveablePods {
-						glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.node.Name)
+						glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.Node.Name)
 						// Drain the node - places eviction on each pod moving them in turn.
-						err := drain.DrainNode(nodeInfo.node, podsForDeletion, kubeClient, recorder, 60, drain.MaxPodEvictionTime, drain.EvictionRetryTime)
+						err := drain.DrainNode(nodeInfo.Node, podsForDeletion, kubeClient, recorder, 60, drain.MaxPodEvictionTime, drain.EvictionRetryTime)
 						if err != nil {
 							glog.Errorf("Failed to drain node: %v", err)
 						}
@@ -242,10 +241,10 @@ func createEventRecorder(client kube_client.Interface) kube_record.EventRecorder
 // scheduled on the node, and returns the node if it finds a suitable one.
 // Currently sorts nodes by most requested CPU in an attempt to fill fuller
 // nodes first (Attempting to bin pack)
-func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos []*NodeInfo, pod *apiv1.Pod) *NodeInfo {
+func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos []*nodes.NodeInfo, pod *apiv1.Pod) *nodes.NodeInfo {
 	for _, nodeInfo := range nodeInfos {
-		kubeNodeInfo := schedulercache.NewNodeInfo(nodeInfo.pods...)
-		kubeNodeInfo.SetNode(nodeInfo.node)
+		kubeNodeInfo := schedulercache.NewNodeInfo(nodeInfo.Pods...)
+		kubeNodeInfo.SetNode(nodeInfo.Node)
 
 		// Pretend pod isn't scheduled
 		pod.Spec.NodeName = ""
