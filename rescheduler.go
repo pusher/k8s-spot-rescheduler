@@ -236,8 +236,10 @@ func main() {
 						err := drain.DrainNode(nodeInfo.Node, podsForDeletion, kubeClient, recorder, 60, drain.MaxPodEvictionTime, drain.EvictionRetryTime)
 						if err != nil {
 							glog.Errorf("Failed to drain node: %v", err)
+							metrics.UpdateNodeDrainCount("Failure", nodeInfo.Node.Name)
 						}
 						lastDrainTime = time.Now()
+						metrics.UpdateNodeDrainCount("Success", nodeInfo.Node.Name)
 						break
 					}
 				}

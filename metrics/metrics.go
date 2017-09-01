@@ -84,3 +84,13 @@ func UpdateNodesMap(nm nodes.NodesMap) {
 func UpdateOnDemandPodsCount(nodeName string, numPods int) {
 	onDemandPodsCount.WithLabelValues(nodeName).Set(float64(numPods))
 }
+
+// UpdateEvictionsCount adds 1 to the evictions counter
+func UpdateEvictionsCount() {
+	evictionsCount.Add(1)
+}
+
+// UpdateNodeDrainCount updates the number drains and drain state for a node
+func UpdateNodeDrainCount(state string, nodeName string) {
+	nodeDrainCount.WithLabelValues(state, nodeName).Add(1)
+}
