@@ -47,6 +47,8 @@ On this, you should configure the flags as you require.
 
 `--housekeeping-interval` (default: 10 (seconds)): How often rescheduler takes actions.
 
+`--node-drain-delay` (defeault: 10 (minutes)): How long the scheduler should wait between draining nodes.
+
 `--pod-scheduled-timeout` (default: 120 (seconds): How long should rescheduler should wait for the pod to be rescheduled after evicting it from an on-demand node.
 
 `--listen-address` (default: `localhost:9235`): Address to listen on for serving prometheus metrics

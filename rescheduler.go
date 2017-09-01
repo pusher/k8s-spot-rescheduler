@@ -64,6 +64,9 @@ var (
 	housekeepingInterval = flags.Duration("housekeeping-interval", 10*time.Second,
 		`How often rescheduler takes actions.`)
 
+	nodeDrainDelay = flags.Duration("node-drain-delay", 10*time.Minute,
+		`How long the scheduler should wait between draining nodes.`)
+
 	podScheduledTimeout = flags.Duration("pod-scheduled-timeout", 10*time.Minute,
 		`How long should rescheduler wait for critical pod to be scheduled
 		 after evicting pods to make a spot for it.`)
@@ -91,6 +94,8 @@ func main() {
 		glog.Fatalf("Failed to start metrics: %v", err)
 	}()
 
+	lastDrainTime := time.Now().Add(-*nodeDrainDelay)
+
 	kubeClient, err := createKubeClient(flags, *inCluster)
 	if err != nil {
 		glog.Fatalf("Failed to create kube client: %v", err)
@@ -117,6 +122,10 @@ func main() {
 		// Run forever, every housekeepingInterval seconds
 		case <-time.After(*housekeepingInterval):
 			{
+				if time.Since(lastDrainTime) < *nodeDrainDelay {
+					glog.Infof("Waiting %s for drain delay timer.", *nodeDrainDelay-time.Since(lastDrainTime))
+					continue
+				}
 				glog.Info("Starting node processing.")
 
 				// All nodes in the cluster
@@ -201,6 +210,7 @@ func main() {
 						if err != nil {
 							glog.Errorf("Failed to drain node: %v", err)
 						}
+						lastDrainTime = time.Now()
 						break
 					}
 				}
