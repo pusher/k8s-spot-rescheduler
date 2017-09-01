@@ -20,25 +20,51 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+const (
+	reschedulerNamespace = "spot_rescheduler"
+)
+
 var (
-	// UnschedulableCriticalPodsCount tracks the number of time when a critical pod was unschedublable.
-	UnschedulableCriticalPodsCount = prometheus.NewCounterVec(
+	// onDemandPodsCount tracks how many pods are on on-demand nodes.
+	onDemandPodsCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "rescheduler",
-			Name:      "unschedulable_ciritical_pods_count",
+			Name:      "on_demand_pods_count",
 			Help:      "Number of times a critical pod was unschedulable.",
 		},
-		[]string{"k8s_app"})
-	// DeletedPodsCount tracks the number of deletion of pods in order to schedule a critical one.
-	DeletedPodsCount = prometheus.NewCounter(
+		[]string{"node"})
+
+	// nodesCount tracks the number of nodes in the cluster.
+	nodesCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: reschedulerNamespace,
+			Name:      "nodes_count",
+			Help:      "Number of nodes in cluster.",
+		}, []string{"node_type"},
+	)
+
+	// nodeDrainCount counts the number of nodes drained by the rescheduler.
+	nodeDrainCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "rescheduler",
-			Name:      "deleted_pods_count",
-			Help:      "Number of pods deleted in order to schedule a critical pod.",
-		})
+			Namespace: reschedulerNamespace,
+			Name:      "node_drain_total",
+			Help:      "Number of nodes drained by CA.",
+		}, []string{"drain_state", "node"},
+	)
+
+	// evictionsCount counts the number of pods evicted by the rescheduler
+	evictionsCount = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: reschedulerNamespace,
+			Name:      "evicted_pods_total",
+			Help:      "Number of pods evicted by the rescheduler.",
+		},
+	)
 )
 
 func init() {
-	prometheus.MustRegister(UnschedulableCriticalPodsCount)
-	prometheus.MustRegister(DeletedPodsCount)
+	prometheus.MustRegister(onDemandPodsCount)
+	prometheus.MustRegister(nodesCount)
+	prometheus.MustRegister(nodeDrainCount)
+	prometheus.MustRegister(evictionsCount)
 }
