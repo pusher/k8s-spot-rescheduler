@@ -83,6 +83,16 @@ func main() {
 	logToStdErr.DefValue = "true"
 	flags.Set("logtostderr", "true")
 
+	// Add nodes labels as flags
+	flags.StringVar(&nodes.OnDemandNodeLabel,
+		"on-demand-node-label",
+		"node-role.kubernetes.io/worker",
+		`Name of label on nodes to be considered for draining.`)
+	flags.StringVar(&nodes.SpotNodeLabel,
+		"spot-node-label",
+		"node-role.kubernetes.io/spot-worker",
+		`Name of label on nodes to be considered as targets for pods.`)
+
 	flags.Parse(os.Args)
 
 	glog.Infof("Running Rescheduler")
