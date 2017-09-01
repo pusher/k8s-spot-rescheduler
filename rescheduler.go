@@ -113,6 +113,7 @@ func main() {
 
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
 	podDisruptionBudgetLister := kube_utils.NewPodDisruptionBudgetLister(kubeClient, stopChannel)
+	unschedulablePodLister := kube_utils.NewUnschedulablePodLister(kubeClient, stopChannel)
 
 	// TODO(piosz): consider reseting this set once every few hours.
 	//podsBeingProcessed := NewPodSet()
@@ -126,6 +127,17 @@ func main() {
 					glog.Infof("Waiting %s for drain delay timer.", *nodeDrainDelay-time.Since(lastDrainTime))
 					continue
 				}
+
+				// Don't run if pods are unschedulable
+				unschedulablePods, err := unschedulablePodLister.List()
+				if err != nil {
+					glog.Errorf("Failed to get unschedulable pods: %v", err)
+				}
+				if len(unschedulablePods) > 0 {
+					glog.Info("Waiting for unschedulable pods to be scheduled.")
+					continue
+				}
+
 				glog.Info("Starting node processing.")
 
 				// All nodes in the cluster
