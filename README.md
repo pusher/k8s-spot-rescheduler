@@ -90,7 +90,6 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 
 ## [TODO](#todo)
 
-* Sort pods on worker nodes by most requested CPU first
 * Add Prometheus metrics for number of pods on worker nodes and number of pods rescheduled (plus anything else that might be useful)
 * Make on-demand and spot instance labels into flags
 * Refactor 'worker' to 'onDemand' increase abstraction from Pusher systems
