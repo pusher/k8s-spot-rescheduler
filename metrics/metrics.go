@@ -29,9 +29,9 @@ var (
 	// onDemandPodsCount tracks how many pods are on on-demand nodes.
 	onDemandPodsCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "rescheduler",
+			Namespace: reschedulerNamespace,
 			Name:      "on_demand_pods_count",
-			Help:      "Number of times a critical pod was unschedulable.",
+			Help:      "Number of pods on an on-demand node.",
 		},
 		[]string{"node"})
 
