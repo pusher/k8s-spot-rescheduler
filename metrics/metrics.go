@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/pusher/spot-rescheduler/nodes"
 )
 
 const (
@@ -67,4 +68,19 @@ func init() {
 	prometheus.MustRegister(nodesCount)
 	prometheus.MustRegister(nodeDrainCount)
 	prometheus.MustRegister(evictionsCount)
+}
+
+// UpdateNodesMap updates the metrics calculated by the nodes map
+func UpdateNodesMap(nm nodes.NodesMap) {
+	if nm == nil {
+		return
+	}
+	nodesCount.WithLabelValues(nodes.OnDemandNodeLabel).Set(float64(len(nm[nodes.OnDemand])))
+	nodesCount.WithLabelValues(nodes.SpotNodeLabel).Set(float64(len(nm[nodes.Spot])))
+
+}
+
+// UpdateOnDemandPodsCount updates onDemandPodsCount for a given node
+func UpdateOnDemandPodsCount(nodeName string, numPods int) {
+	onDemandPodsCount.WithLabelValues(nodeName).Set(float64(numPods))
 }

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pusher/spot-rescheduler/drain"
+	"github.com/pusher/spot-rescheduler/metrics"
 	"github.com/pusher/spot-rescheduler/nodes"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
 	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
@@ -164,6 +165,8 @@ func main() {
 					continue
 				}
 
+				metrics.UpdateNodesMap(nodeMap)
+
 				// Get PodDisruptionBudgets
 				// All nodes in the cluster
 				allPDBs, err := podDisruptionBudgetLister.List()
@@ -199,6 +202,8 @@ func main() {
 						glog.Errorf("Failed to get pods for consideration: %v", err)
 						continue
 					}
+
+					metrics.UpdateOnDemandPodsCount(nodeInfo.Node.Name, len(podsForDeletion))
 					if len(podsForDeletion) < 1 {
 						// Nothing to do here
 						glog.Infof("No pods on %s, skipping.", nodeInfo.Node.Name)
