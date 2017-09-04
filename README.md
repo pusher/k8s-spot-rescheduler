@@ -4,7 +4,7 @@
 
 Spot recheduler is a tool that tries to reduce load on a set of Kubernetes nodes. It was designed with the purpose of moving Pods scheduled on AWS on-demand instances to AWS spot instances to allow the on-demand instances to be safely scaled down (By the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)).
 
-The on-demand instances are tainted with the Kubernetes `PreferNoSchedule` taint. This tells the scheduler, if there is space on another node, use that first, if not, use me. But, Kubernetes does not have a way of rescheduling these Pods once they are scheduled on the non-preferred node, which is where the spot-rescheduler comes in.
+Our on-demand instances are tainted with the Kubernetes `PreferNoSchedule` taint. This tells the scheduler, if there is space on another node, use that first. But, Kubernetes does not have a way of rescheduling these Pods once they are scheduled on the non-preferred node, which is where the spot-rescheduler comes in.
 
 In reality the rescheduler can be used to remove load from any group of nodes onto a different group of nodes. They just need to be labelled appropriately.
 
@@ -45,21 +45,21 @@ On this, you should configure the flags as you require.
 
  `--kube-api-content-type` (default: `application/vnd.kubernetes.protobuf`): Content type of requests sent to apiserver.
 
-`--housekeeping-interval` (default: 10 (seconds)): How often rescheduler takes actions.
+`--housekeeping-interval` (default: 10s): How often rescheduler takes actions.
 
-`--node-drain-delay` (default: 600 (seconds)): How long the scheduler should wait between draining nodes.
+`--node-drain-delay` (default: 10m): How long the scheduler should wait between draining nodes.
 
-`--pod-eviction-timeout` (default: 120 (seconds)): How long should the rescheduler attempt to retrieve successful pod
+`--pod-eviction-timeout` (default: 2m): How long should the rescheduler attempt to retrieve successful pod
  evictions for.
 
- `--max-graceful-termination` (default: 120 (seconds)): How long should the rescheduler wait for pods to shutdown gracefully before
+ `--max-graceful-termination` (default: 2m): How long should the rescheduler wait for pods to shutdown gracefully before
   failing the node drain attempt.
 
-`--pod-scheduled-timeout` (default: 120 (seconds): How long should rescheduler should wait for the pod to be rescheduled after evicting it from an on-demand node.
+`--pod-scheduled-timeout` (default: 2m): How long should rescheduler should wait for the pod to be rescheduled after evicting it from an on-demand node.
 
 `--listen-address` (default: `localhost:9235`): Address to listen on for serving prometheus metrics
 
-Once this is done you should ensure that you have Kubernetes labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` on your on-demand and spot instances respectively and that the on-demand instances are tainted with a `PreferNoSchedule` taint.
+Once this is done you should ensure that you have Kubernetes labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` (or your own identifiers) on your on-demand and spot instances respectively and that the on-demand instances are tainted with a `PreferNoSchedule` taint.
 
 For example you could add the following to `ExecStart` in your Kubelet's config file:
 ```
