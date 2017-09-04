@@ -114,7 +114,7 @@ func main() {
 		glog.Fatalf("Failed to start metrics: %v", err)
 	}()
 
-	lastDrainTime := time.Now().Add(-*nodeDrainDelay)
+	nextDrainTime := time.Now()
 
 	kubeClient, err := createKubeClient(flags, *inCluster)
 	if err != nil {
@@ -143,8 +143,8 @@ func main() {
 		// Run forever, every housekeepingInterval seconds
 		case <-time.After(*housekeepingInterval):
 			{
-				if time.Since(lastDrainTime) < *nodeDrainDelay {
-					glog.Infof("Waiting %s for drain delay timer.", *nodeDrainDelay-time.Since(lastDrainTime))
+				if time.Until(nextDrainTime) > 0 {
+					glog.Infof("Waiting %s for drain delay timer.", time.Until(nextDrainTime))
 					continue
 				}
 
@@ -252,7 +252,7 @@ func main() {
 						} else {
 							metrics.UpdateNodeDrainCount("Success", nodeInfo.Node.Name)
 						}
-						lastDrainTime = time.Now()
+						nextDrainTime = time.Now().Add(*nodeDrainDelay)
 						break
 					}
 				}
