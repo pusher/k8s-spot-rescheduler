@@ -16,12 +16,6 @@ import (
 )
 
 const (
-	// MaxKubernetesEmptyNodeDeletionTime is the maximum time needed by Kubernetes to delete an empty node.
-	MaxKubernetesEmptyNodeDeletionTime = 3 * time.Minute
-	// MaxCloudProviderNodeDeletionTime is the maximum time needed by cloud provider to delete a node.
-	MaxCloudProviderNodeDeletionTime = 5 * time.Minute
-	// MaxPodEvictionTime is the maximum time CA tries to evict a pod before giving up.
-	MaxPodEvictionTime = 2 * time.Minute
 	// EvictionRetryTime is the time after CA retries failed pod eviction.
 	EvictionRetryTime = 10 * time.Second
 )
