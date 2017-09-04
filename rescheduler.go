@@ -73,6 +73,8 @@ var (
 
 	listenAddress = flags.String("listen-address", "localhost:9235",
 		`Address to listen on for serving prometheus metrics`)
+
+	nextDrainTime = time.Now()
 )
 
 func main() {
@@ -103,8 +105,6 @@ func main() {
 		err := http.ListenAndServe(*listenAddress, nil)
 		glog.Fatalf("Failed to start metrics: %v", err)
 	}()
-
-	nextDrainTime := time.Now()
 
 	kubeClient, err := createKubeClient(flags, *inCluster)
 	if err != nil {
@@ -184,17 +184,9 @@ func main() {
 				}
 
 				// Go through each onDemand node in turn
-				// Check each pod to see if it can be moved
+				// Build a plan to move pods onto other nodes
 				// In the case that all can be moved, drain the node
 				for _, nodeInfo := range onDemandNodeInfos {
-
-					// Create a copy of the spotNodeInfos so that we can modify the list
-					// of pods within this node's iteration only
-					nodePlan, err := spotNodeInfos.CopyNodeInfos(kubeClient)
-					if err != nil {
-						glog.Errorf("Failed to build plan; %v", err)
-						continue
-					}
 
 					// Get a list of pods that we would need to move onto other nodes
 					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, allPDBs, false, false, false, false, nil, 0, time.Now())
@@ -211,38 +203,23 @@ func main() {
 						continue
 					}
 
-					// Variable to guard against draining node not fit for draining
-					var unmoveablePods bool = false
-
 					glog.Infof("Considering %s for removal", nodeInfo.Node.Name)
-					// Consider each pod in turn
-					for _, pod := range podsForDeletion {
-						// Works out if a spot node is available for rescheduling
-						spotNodeInfo := findSpotNodeForPod(kubeClient, predicateChecker, nodePlan, pod)
-						if spotNodeInfo == nil {
-							glog.Infof("Pod %s can't be rescheduled on any existing spot node. This node cannot be drained.", podId(pod))
-							unmoveablePods = true
-							break
-						} else {
-							glog.Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.Node.ObjectMeta.Name)
-							spotNodeInfo.AddPod(kubeClient, pod)
-						}
+
+					// Build plan to move each pod from this node
+					err = buildDrainPlan(kubeClient, predicateChecker, spotNodeInfos, podsForDeletion)
+					if err != nil {
+						glog.Errorf("Failed to drain node: %v", err)
+						continue
 					}
 
-					// If no unmoveable pods were found, drain node
-					if !unmoveablePods {
-						glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.Node.Name)
-						// Drain the node - places eviction on each pod moving them in turn.
-						err := drain.DrainNode(nodeInfo.Node, podsForDeletion, kubeClient, recorder, int(maxGracefulTermination.Seconds()), *podEvictionTimeout, drain.EvictionRetryTime)
-						if err != nil {
-							glog.Errorf("Failed to drain node: %v", err)
-							metrics.UpdateNodeDrainCount("Failure", nodeInfo.Node.Name)
-						} else {
-							metrics.UpdateNodeDrainCount("Success", nodeInfo.Node.Name)
-						}
-						nextDrainTime = time.Now().Add(*nodeDrainDelay)
-						break
+					// If building plan was successful, can drain node.
+					glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.Node.Name)
+					// Drain the node - places eviction on each pod moving them in turn.
+					err = drainNode(kubeClient, recorder, nodeInfo.Node, podsForDeletion, int(maxGracefulTermination.Seconds()), *podEvictionTimeout)
+					if err != nil {
+						glog.Errorf("Failed to drain node: %v", err)
 					}
+					break
 				}
 
 				glog.Info("Finished processing nodes.")
@@ -294,6 +271,45 @@ func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulato
 			return nodeInfo
 		}
 	}
+	return nil
+}
+
+// Goes through a list of pods and works out new nodes to place them on.
+// Returns an error if any of the pods won't fit onto existing spot nodes.
+func buildDrainPlan(kubeClient kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos nodes.NodeInfoArray, pods []*apiv1.Pod) error {
+	// Create a copy of the nodeInfos so that we can modify the list within this
+	// call
+	nodePlan, err := nodeInfos.CopyNodeInfos(kubeClient)
+	if err != nil {
+		return err
+	}
+
+	for _, pod := range pods {
+		// Works out if a spot node is available for rescheduling
+		spotNodeInfo := findSpotNodeForPod(kubeClient, predicateChecker, nodePlan, pod)
+		if spotNodeInfo == nil {
+			return fmt.Errorf("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
+		} else {
+			glog.Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.Node.ObjectMeta.Name)
+			spotNodeInfo.AddPod(kubeClient, pod)
+		}
+	}
+
+	return nil
+}
+
+// Performs a drain on given node and updates the nextDrainTime variable.
+// Returns an error if the drain fails.
+func drainNode(kubeClient kube_client.Interface, recorder kube_record.EventRecorder, node *apiv1.Node, pods []*apiv1.Pod, maxGracefulTermination int, podEvictionTimeout time.Duration) error {
+	err := drain.DrainNode(node, pods, kubeClient, recorder, maxGracefulTermination, podEvictionTimeout, drain.EvictionRetryTime)
+	if err != nil {
+		metrics.UpdateNodeDrainCount("Failure", node.Name)
+		nextDrainTime = time.Now().Add(*nodeDrainDelay)
+		return err
+	}
+
+	metrics.UpdateNodeDrainCount("Success", node.Name)
+	nextDrainTime = time.Now().Add(*nodeDrainDelay)
 	return nil
 }
 
