@@ -241,9 +241,10 @@ func main() {
 						if err != nil {
 							glog.Errorf("Failed to drain node: %v", err)
 							metrics.UpdateNodeDrainCount("Failure", nodeInfo.Node.Name)
+						} else {
+							metrics.UpdateNodeDrainCount("Success", nodeInfo.Node.Name)
 						}
 						lastDrainTime = time.Now()
-						metrics.UpdateNodeDrainCount("Success", nodeInfo.Node.Name)
 						break
 					}
 				}
