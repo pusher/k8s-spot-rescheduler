@@ -69,6 +69,14 @@ var (
 	nodeDrainDelay = flags.Duration("node-drain-delay", 10*time.Minute,
 		`How long the scheduler should wait between draining nodes.`)
 
+	podEvictionTimeout = flags.Duration("pod-eviction-timeout", 2*time.Minute,
+		`How long should the rescheduler attempt to retrieve successful pod
+		 evictions for.`)
+
+	maxGracefulTermination = flags.Duration("max-graceful-termination", 2*time.Minute,
+		`How long should the rescheduler wait for pods to shutdown gracefully before
+		 failing the node drain attempt.`)
+
 	podScheduledTimeout = flags.Duration("pod-scheduled-timeout", 10*time.Minute,
 		`How long should rescheduler wait for critical pod to be scheduled
 		 after evicting pods to make a spot for it.`)
@@ -237,7 +245,7 @@ func main() {
 					if !unmoveablePods {
 						glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.Node.Name)
 						// Drain the node - places eviction on each pod moving them in turn.
-						err := drain.DrainNode(nodeInfo.Node, podsForDeletion, kubeClient, recorder, 60, drain.MaxPodEvictionTime, drain.EvictionRetryTime)
+						err := drain.DrainNode(nodeInfo.Node, podsForDeletion, kubeClient, recorder, int(maxGracefulTermination.Seconds()), *podEvictionTimeout, drain.EvictionRetryTime)
 						if err != nil {
 							glog.Errorf("Failed to drain node: %v", err)
 							metrics.UpdateNodeDrainCount("Failure", nodeInfo.Node.Name)
