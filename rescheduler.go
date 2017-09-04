@@ -130,6 +130,7 @@ func main() {
 		// Run forever, every housekeepingInterval seconds
 		case <-time.After(*housekeepingInterval):
 			{
+				// Don't do anything if we are waiting for the drain delay timer
 				if time.Until(nextDrainTime) > 0 {
 					glog.Infof("Waiting %s for drain delay timer.", time.Until(nextDrainTime))
 					continue
@@ -147,7 +148,7 @@ func main() {
 
 				glog.Info("Starting node processing.")
 
-				// All nodes in the cluster
+				// Get all nodes in the cluster
 				allNodes, err := nodeLister.List()
 				if err != nil {
 					glog.Errorf("Failed to list nodes: %v", err)
@@ -161,17 +162,17 @@ func main() {
 					continue
 				}
 
+				// Update metrics
 				metrics.UpdateNodesMap(nodeMap)
 
 				// Get PodDisruptionBudgets
-				// All nodes in the cluster
 				allPDBs, err := podDisruptionBudgetLister.List()
 				if err != nil {
 					glog.Errorf("Failed to list PDBs: %v", err)
 					continue
 				}
 
-				// Get onDemand and spot nodeInfos
+				// Get onDemand and spot nodeInfoArrays
 				onDemandNodeInfos := nodeMap[nodes.OnDemand]
 				spotNodeInfos := nodeMap[nodes.Spot]
 
@@ -202,6 +203,7 @@ func main() {
 						continue
 					}
 
+					// Update the number of pods on this node's metrics
 					metrics.UpdateNodePodsCount(nodes.OnDemandNodeLabel, nodeInfo.Node.Name, len(podsForDeletion))
 					if len(podsForDeletion) < 1 {
 						// Nothing to do here
@@ -215,7 +217,6 @@ func main() {
 					glog.Infof("Considering %s for removal", nodeInfo.Node.Name)
 					// Consider each pod in turn
 					for _, pod := range podsForDeletion {
-
 						// Works out if a spot node is available for rescheduling
 						spotNodeInfo := findSpotNodeForPod(kubeClient, predicateChecker, nodePlan, pod)
 						if spotNodeInfo == nil {
