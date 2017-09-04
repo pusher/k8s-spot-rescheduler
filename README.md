@@ -47,7 +47,13 @@ On this, you should configure the flags as you require.
 
 `--housekeeping-interval` (default: 10 (seconds)): How often rescheduler takes actions.
 
-`--node-drain-delay` (defeault: 10 (minutes)): How long the scheduler should wait between draining nodes.
+`--node-drain-delay` (default: 600 (seconds)): How long the scheduler should wait between draining nodes.
+
+`--pod-eviction-timeout` (default: 120 (seconds)): How long should the rescheduler attempt to retrieve successful pod
+ evictions for.
+
+ `--max-graceful-termination` (default: 120 (seconds)): How long should the rescheduler wait for pods to shutdown gracefully before
+  failing the node drain attempt.
 
 `--pod-scheduled-timeout` (default: 120 (seconds): How long should rescheduler should wait for the pod to be rescheduled after evicting it from an on-demand node.
 
@@ -90,6 +96,5 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 
 ## [TODO](#todo)
 
-* Add Prometheus metrics for number of pods on worker nodes and number of pods rescheduled (plus anything else that might be useful)
 * Refactor 'worker' to 'onDemand' increase abstraction from Pusher systems
 * Add spacial limits - Don't consider spot instances with less than X% spare resource? Don't consider worker instances with less than X% requested? (Might be cleaned up by autoscaler anyway?)
