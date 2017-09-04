@@ -179,6 +179,18 @@ func main() {
 				onDemandNodeInfos := nodeMap[nodes.OnDemand]
 				spotNodeInfos := nodeMap[nodes.Spot]
 
+				// Update number of pods on each spot node
+				for _, nodeInfo := range spotNodeInfos {
+					// Get a list of pods that are on the node (Only the types considered by the rescheduler)
+					podsOnNode, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, allPDBs, false, false, false, false, nil, 0, time.Now())
+					if err != nil {
+						glog.Errorf("Failed to get pods on spot node: %v", err)
+						continue
+					}
+					metrics.UpdateNodePodsCount(nodes.SpotNodeLabel, nodeInfo.Node.Name, len(podsOnNode))
+
+				}
+
 				if len(onDemandNodeInfos) < 1 {
 					glog.Info("No nodes to process.")
 				}
@@ -203,7 +215,7 @@ func main() {
 						continue
 					}
 
-					metrics.UpdateOnDemandPodsCount(nodeInfo.Node.Name, len(podsForDeletion))
+					metrics.UpdateNodePodsCount(nodes.OnDemandNodeLabel, nodeInfo.Node.Name, len(podsForDeletion))
 					if len(podsForDeletion) < 1 {
 						// Nothing to do here
 						glog.Infof("No pods on %s, skipping.", nodeInfo.Node.Name)

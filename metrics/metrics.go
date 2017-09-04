@@ -27,13 +27,13 @@ const (
 
 var (
 	// onDemandPodsCount tracks how many pods are on on-demand nodes.
-	onDemandPodsCount = prometheus.NewCounterVec(
+	nodePodsCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: reschedulerNamespace,
-			Name:      "on_demand_pods_count",
-			Help:      "Number of pods on an on-demand node.",
+			Name:      "node_pods_count",
+			Help:      "Number of pods on each node.",
 		},
-		[]string{"node"})
+		[]string{"node_type", "node"})
 
 	// nodesCount tracks the number of nodes in the cluster.
 	nodesCount = prometheus.NewGaugeVec(
@@ -64,7 +64,7 @@ var (
 )
 
 func init() {
-	prometheus.MustRegister(onDemandPodsCount)
+	prometheus.MustRegister(nodePodsCount)
 	prometheus.MustRegister(nodesCount)
 	prometheus.MustRegister(nodeDrainCount)
 	prometheus.MustRegister(evictionsCount)
@@ -80,9 +80,9 @@ func UpdateNodesMap(nm nodes.NodesMap) {
 
 }
 
-// UpdateOnDemandPodsCount updates onDemandPodsCount for a given node
-func UpdateOnDemandPodsCount(nodeName string, numPods int) {
-	onDemandPodsCount.WithLabelValues(nodeName).Set(float64(numPods))
+// UpdateNodePodsCount updates nodePodsCount for a given node
+func UpdateNodePodsCount(nodeType string, nodeName string, numPods int) {
+	nodePodsCount.WithLabelValues(nodeType, nodeName).Set(float64(numPods))
 }
 
 // UpdateEvictionsCount adds 1 to the evictions counter
