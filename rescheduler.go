@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/pusher/spot-rescheduler/drain"
+	"github.com/pusher/spot-rescheduler/metrics"
 	"github.com/pusher/spot-rescheduler/nodes"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
 	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
@@ -34,6 +35,7 @@ import (
 	kube_record "k8s.io/client-go/tools/record"
 	"k8s.io/kubernetes/pkg/api"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
+	policyv1 "k8s.io/kubernetes/pkg/apis/policy/v1beta1"
 	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	kubectl_util "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
@@ -164,6 +166,8 @@ func main() {
 					continue
 				}
 
+				metrics.UpdateNodesMap(nodeMap)
+
 				// Get PodDisruptionBudgets
 				// All nodes in the cluster
 				allPDBs, err := podDisruptionBudgetLister.List()
@@ -175,6 +179,9 @@ func main() {
 				// Get onDemand and spot nodeInfos
 				onDemandNodeInfos := nodeMap[nodes.OnDemand]
 				spotNodeInfos := nodeMap[nodes.Spot]
+
+				// Update spot node metrics
+				updateSpotNodeMetrics(spotNodeInfos, allPDBs)
 
 				if len(onDemandNodeInfos) < 1 {
 					glog.Info("No nodes to process.")
@@ -199,6 +206,8 @@ func main() {
 						glog.Errorf("Failed to get pods for consideration: %v", err)
 						continue
 					}
+
+					metrics.UpdateNodePodsCount(nodes.OnDemandNodeLabel, nodeInfo.Node.Name, len(podsForDeletion))
 					if len(podsForDeletion) < 1 {
 						// Nothing to do here
 						glog.Infof("No pods on %s, skipping.", nodeInfo.Node.Name)
@@ -231,6 +240,9 @@ func main() {
 						err := drain.DrainNode(nodeInfo.Node, podsForDeletion, kubeClient, recorder, 60, drain.MaxPodEvictionTime, drain.EvictionRetryTime)
 						if err != nil {
 							glog.Errorf("Failed to drain node: %v", err)
+							metrics.UpdateNodeDrainCount("Failure", nodeInfo.Node.Name)
+						} else {
+							metrics.UpdateNodeDrainCount("Success", nodeInfo.Node.Name)
 						}
 						lastDrainTime = time.Now()
 						break
@@ -287,4 +299,20 @@ func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulato
 		}
 	}
 	return nil
+}
+
+// Goes through a list of NodeInfos and updates the metrics system with the
+// number of pods that the rescheduler understands (So not daemonsets for
+// instance) that are on each of the nodes, labelling them as spot nodes.
+func updateSpotNodeMetrics(spotNodeInfos nodes.NodeInfoArray, pdbs []*policyv1.PodDisruptionBudget) {
+	for _, nodeInfo := range spotNodeInfos {
+		// Get a list of pods that are on the node (Only the types considered by the rescheduler)
+		podsOnNode, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, pdbs, false, false, false, false, nil, 0, time.Now())
+		if err != nil {
+			glog.Errorf("Failed to get pods on spot node: %v", err)
+			continue
+		}
+		metrics.UpdateNodePodsCount(nodes.SpotNodeLabel, nodeInfo.Node.Name, len(podsOnNode))
+
+	}
 }
