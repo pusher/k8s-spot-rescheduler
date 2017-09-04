@@ -208,7 +208,7 @@ func main() {
 					// Build plan to move each pod from this node
 					err = buildDrainPlan(kubeClient, predicateChecker, spotNodeInfos, podsForDeletion)
 					if err != nil {
-						glog.Errorf("Failed to drain node: %v", err)
+						glog.Errorf("Failed to build plan: %v", err)
 						continue
 					}
 
