@@ -45,12 +45,6 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
-const (
-	// TaintsAnnotationKey represents the key of taints data (json serialized)
-	// in the Annotations of a Node.
-	TaintsAnnotationKey string = "scheduler.alpha.kubernetes.io/taints"
-)
-
 var (
 	flags = flag.NewFlagSet(
 		`rescheduler: rescheduler --running-in-cluster=true`,
@@ -76,10 +70,6 @@ var (
 	maxGracefulTermination = flags.Duration("max-graceful-termination", 2*time.Minute,
 		`How long should the rescheduler wait for pods to shutdown gracefully before
 		 failing the node drain attempt.`)
-
-	podScheduledTimeout = flags.Duration("pod-scheduled-timeout", 10*time.Minute,
-		`How long should rescheduler wait for critical pod to be scheduled
-		 after evicting pods to make a spot for it.`)
 
 	listenAddress = flags.String("listen-address", "localhost:9235",
 		`Address to listen on for serving prometheus metrics`)
@@ -134,9 +124,6 @@ func main() {
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
 	podDisruptionBudgetLister := kube_utils.NewPodDisruptionBudgetLister(kubeClient, stopChannel)
 	unschedulablePodLister := kube_utils.NewUnschedulablePodLister(kubeClient, stopChannel)
-
-	// TODO(piosz): consider reseting this set once every few hours.
-	//podsBeingProcessed := NewPodSet()
 
 	for {
 		select {
