@@ -17,19 +17,17 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	goflag "flag"
 	"fmt"
 	"net/http"
 	"os"
-	"sort"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"github.com/pusher/spot-rescheduler/drain"
+	"github.com/pusher/spot-rescheduler/metrics"
+	"github.com/pusher/spot-rescheduler/nodes"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
+	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
 	kube_utils "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	clientv1 "k8s.io/client-go/pkg/api/v1"
@@ -37,7 +35,7 @@ import (
 	kube_record "k8s.io/client-go/tools/record"
 	"k8s.io/kubernetes/pkg/api"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/apis/policy/v1beta1"
+	policyv1 "k8s.io/kubernetes/pkg/apis/policy/v1beta1"
 	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	kubectl_util "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
@@ -45,14 +43,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus"
 	flag "github.com/spf13/pflag"
-)
-
-const (
-	workerNodeLabel = "node-role.kubernetes.io/worker"
-	spotNodeLabel   = "node-role.kubernetes.io/spot-worker"
-	// TaintsAnnotationKey represents the key of taints data (json serialized)
-	// in the Annotations of a Node.
-	TaintsAnnotationKey string = "scheduler.alpha.kubernetes.io/taints"
 )
 
 var (
@@ -70,9 +60,16 @@ var (
 	housekeepingInterval = flags.Duration("housekeeping-interval", 10*time.Second,
 		`How often rescheduler takes actions.`)
 
-	podScheduledTimeout = flags.Duration("pod-scheduled-timeout", 10*time.Minute,
-		`How long should rescheduler wait for critical pod to be scheduled
-		 after evicting pods to make a spot for it.`)
+	nodeDrainDelay = flags.Duration("node-drain-delay", 10*time.Minute,
+		`How long the scheduler should wait between draining nodes.`)
+
+	podEvictionTimeout = flags.Duration("pod-eviction-timeout", 2*time.Minute,
+		`How long should the rescheduler attempt to retrieve successful pod
+		 evictions for.`)
+
+	maxGracefulTermination = flags.Duration("max-graceful-termination", 2*time.Minute,
+		`How long should the rescheduler wait for pods to shutdown gracefully before
+		 failing the node drain attempt.`)
 
 	listenAddress = flags.String("listen-address", "localhost:9235",
 		`Address to listen on for serving prometheus metrics`)
@@ -85,6 +82,16 @@ func main() {
 	logToStdErr := flags.Lookup("logtostderr")
 	logToStdErr.DefValue = "true"
 	flags.Set("logtostderr", "true")
+
+	// Add nodes labels as flags
+	flags.StringVar(&nodes.OnDemandNodeLabel,
+		"on-demand-node-label",
+		"node-role.kubernetes.io/worker",
+		`Name of label on nodes to be considered for draining.`)
+	flags.StringVar(&nodes.SpotNodeLabel,
+		"spot-node-label",
+		"node-role.kubernetes.io/spot-worker",
+		`Name of label on nodes to be considered as targets for pods.`)
 
 	flags.Parse(os.Args)
 
@@ -112,111 +119,114 @@ func main() {
 		glog.Fatalf("Failed to create predicate checker: %v", err)
 	}
 
-	scheduledPodLister := kube_utils.NewScheduledPodLister(kubeClient, stopChannel)
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
 	podDisruptionBudgetLister := kube_utils.NewPodDisruptionBudgetLister(kubeClient, stopChannel)
+	unschedulablePodLister := kube_utils.NewUnschedulablePodLister(kubeClient, stopChannel)
 
-	// TODO(piosz): consider reseting this set once every few hours.
-	podsBeingProcessed := NewPodSet()
+	nextDrainTime := time.Now()
 
 	for {
 		select {
 		// Run forever, every housekeepingInterval seconds
 		case <-time.After(*housekeepingInterval):
 			{
-
-				// All pods scheduled on nodes
-				allScheduledPods, err := scheduledPodLister.List()
-				if err != nil {
-					glog.Errorf("Failed to list scheduled pods: %v", err)
+				// Don't do anything if we are waiting for the drain delay timer
+				if time.Until(nextDrainTime) > 0 {
+					glog.Infof("Waiting %s for drain delay timer.", time.Until(nextDrainTime))
 					continue
 				}
 
-				// All nodes in the cluster
+				// Don't run if pods are unschedulable
+				unschedulablePods, err := unschedulablePodLister.List()
+				if err != nil {
+					glog.Errorf("Failed to get unschedulable pods: %v", err)
+				}
+				if len(unschedulablePods) > 0 {
+					glog.Info("Waiting for unschedulable pods to be scheduled.")
+					continue
+				}
+
+				glog.Info("Starting node processing.")
+
+				// Get all nodes in the cluster
 				allNodes, err := nodeLister.List()
 				if err != nil {
 					glog.Errorf("Failed to list nodes: %v", err)
 					continue
 				}
 
-				// Get pods on worker nodes
-				workerNodePods := filterWorkerNodePods(kubeClient, allNodes, allScheduledPods, podsBeingProcessed)
-
-				if len(workerNodePods) > 0 {
-					// Consider each pod in turn
-					for _, pod := range workerNodePods {
-						glog.Infof("Found %s on a worker node", pod.Name)
-
-						// Get all nodes again
-						nodes, err := nodeLister.List()
-						if err != nil {
-							glog.Errorf("Failed to list nodes: %v", err)
-							continue
-						}
-
-						// Filter all nodes down to just spot instances
-						spotNodes := []*apiv1.Node{}
-						for _, node := range nodes {
-							if isSpotNode(node) {
-								spotNodes = append(spotNodes, node)
-							}
-						}
-
-						// Works out if a spot node is available for rescheduling
-						node := findNodeForPod(kubeClient, predicateChecker, spotNodes, pod)
-						if node == nil {
-							glog.Infof("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
-							continue
-						} else {
-							glog.Infof("Pod %s can be rescheduled, attempting to reschedule.", podId(pod))
-						}
-
-						// Wokr out if a PDB would be broken if we delted the pod
-						allowance, err := havePodDisruptionAllowance(podDisruptionBudgetLister, pod)
-						if err != nil {
-							glog.Errorf("Error while looking for PodDisruptionBudgets, %v", err)
-							continue
-						}
-						if !allowance {
-							glog.Infof("Cannot reschedule %s, not enough pod disruption budget.", podId(pod))
-						}
-
-						// Delete the pod and wait for it to be rescheduled before continuing to the next pod
-						err = deletePod(kubeClient, recorder, pod, node)
-						if err != nil {
-							glog.Infof("Failed to delete %s; %s", pod.Name, err)
-						} else {
-							podsBeingProcessed.Add(pod)
-							go waitForScheduled(kubeClient, podsBeingProcessed, pod)
-						}
-
-					}
-				} else {
-					glog.Infof("No pods to be considered for rescheduling.")
+				// Build a map of nodeInfo structs
+				nodeMap, err := nodes.NewNodeMap(kubeClient, allNodes)
+				if err != nil {
+					glog.Errorf("Failed to build node map; %v", err)
+					continue
 				}
+
+				// Update metrics
+				metrics.UpdateNodesMap(nodeMap)
+
+				// Get PodDisruptionBudgets
+				allPDBs, err := podDisruptionBudgetLister.List()
+				if err != nil {
+					glog.Errorf("Failed to list PDBs: %v", err)
+					continue
+				}
+
+				// Get onDemand and spot nodeInfoArrays
+				onDemandNodeInfos := nodeMap[nodes.OnDemand]
+				spotNodeInfos := nodeMap[nodes.Spot]
+
+				// Update spot node metrics
+				updateSpotNodeMetrics(spotNodeInfos, allPDBs)
+
+				if len(onDemandNodeInfos) < 1 {
+					glog.Info("No nodes to process.")
+				}
+
+				// Go through each onDemand node in turn
+				// Build a plan to move pods onto other nodes
+				// In the case that all can be moved, drain the node
+				for _, nodeInfo := range onDemandNodeInfos {
+
+					// Get a list of pods that we would need to move onto other nodes
+					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, allPDBs, false, false, false, false, nil, 0, time.Now())
+					if err != nil {
+						glog.Errorf("Failed to get pods for consideration: %v", err)
+						continue
+					}
+
+					// Update the number of pods on this node's metrics
+					metrics.UpdateNodePodsCount(nodes.OnDemandNodeLabel, nodeInfo.Node.Name, len(podsForDeletion))
+					if len(podsForDeletion) < 1 {
+						// Nothing to do here
+						glog.Infof("No pods on %s, skipping.", nodeInfo.Node.Name)
+						continue
+					}
+
+					glog.Infof("Considering %s for removal", nodeInfo.Node.Name)
+
+					// Checks whether or not a node can be drained
+					err = canDrainNode(kubeClient, predicateChecker, spotNodeInfos, podsForDeletion)
+					if err != nil {
+						glog.Errorf("Cannot drain node: %v", err)
+						continue
+					}
+
+					// If building plan was successful, can drain node.
+					glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.Node.Name)
+					// Drain the node - places eviction on each pod moving them in turn.
+					err = drainNode(kubeClient, recorder, nodeInfo.Node, podsForDeletion, int(maxGracefulTermination.Seconds()), *podEvictionTimeout)
+					if err != nil {
+						glog.Errorf("Failed to drain node: %v", err)
+					}
+					nextDrainTime = time.Now().Add(*nodeDrainDelay)
+					break
+				}
+
+				glog.Info("Finished processing nodes.")
 			}
 		}
 	}
-}
-
-// Should wait (up to the timeout) for a pod to be rescheduled
-// Blocker to slow down processing and make sure we only disturb one pod at a time
-func waitForScheduled(client kube_client.Interface, podsBeingProcessed *podSet, pod *apiv1.Pod) {
-	glog.Infof("Waiting for pod %s to be scheduled", podId(pod))
-	err := wait.Poll(time.Second, *podScheduledTimeout, func() (bool, error) {
-		p, err := client.CoreV1().Pods(pod.Namespace).Get(pod.Name, metav1.GetOptions{})
-		if err != nil {
-			glog.Warningf("Error while getting pod %s: %v", podId(pod), err)
-			return false, nil
-		}
-		return p.Spec.NodeName != "", nil
-	})
-	if err != nil {
-		glog.Warningf("Timeout while waiting for pod %s to be scheduled after %v.", podId(pod), *podScheduledTimeout)
-	} else {
-		glog.Infof("Pod %v was successfully scheduled.", podId(pod))
-	}
-	podsBeingProcessed.Remove(pod)
 }
 
 // Configure the kube client used to access the api, either from kubeconfig or
@@ -245,236 +255,72 @@ func createEventRecorder(client kube_client.Interface) kube_record.EventRecorder
 	return eventBroadcaster.NewRecorder(api.Scheme, clientv1.EventSource{Component: "rescheduler"})
 }
 
-// This is unused? I don't know what it is... what is it doing here :(
-func getTaintsFromNodeAnnotations(annotations map[string]string) ([]apiv1.Taint, error) {
-	var taints []apiv1.Taint
-	if len(annotations) > 0 && annotations[TaintsAnnotationKey] != "" {
-		err := json.Unmarshal([]byte(annotations[TaintsAnnotationKey]), &taints)
-		if err != nil {
-			return []apiv1.Taint{}, err
-		}
-	}
-	return taints, nil
-}
-
-// Deletes a pod and broadcasts the event to the event recorder
-func deletePod(client kube_client.Interface, recorder kube_record.EventRecorder, pod *apiv1.Pod, node *apiv1.Node) error {
-	glog.Infof("Deleting pod %s", pod.Name)
-	recorder.Eventf(pod, apiv1.EventTypeNormal, "DeletedByRescheduler",
-		"Deleted by rescheduler to remove load from on-demand instance")
-	err := client.CoreV1().Pods(pod.Namespace).Delete(pod.Name, metav1.NewDeleteOptions(10))
-	if err != nil {
-		return fmt.Errorf("Failed to delete pod %s: %v", podId(pod), err)
-	}
-	return nil
-}
-
-// Takes a copy of all of the details of the node
-func copyNode(node *apiv1.Node) (*apiv1.Node, error) {
-	objCopy, err := api.Scheme.DeepCopy(node)
-	if err != nil {
-		return nil, err
-	}
-	copied, ok := objCopy.(*apiv1.Node)
-	if !ok {
-		return nil, fmt.Errorf("expected Node, got %#v", objCopy)
-	}
-	return copied, nil
-}
-
 // Determines if any of the nodes meet the predicates that allow the Pod to be
 // scheduled on the node, and returns the node if it finds a suitable one.
 // Currently sorts nodes by most requested CPU in an attempt to fill fuller
 // nodes first (Attempting to bin pack)
-func findNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodes []*apiv1.Node, pod *apiv1.Pod) *apiv1.Node {
-	// Sort the nodes by CPU most requested first (Least spare CPU)
-	sort.Slice(nodes, func(i int, j int) bool {
-		iCPU, _, err := getNodeSpareCapacity(client, nodes[i])
-		if err != nil {
-			glog.Errorf("Failed to find node capacity %v", err)
-		}
-		jCPU, _, err := getNodeSpareCapacity(client, nodes[j])
-		if err != nil {
-			glog.Errorf("Failed to find node capacity %v", err)
-		}
-		return iCPU < jCPU
-	})
-
-	for _, originalNode := range nodes {
-		// Operate on a copy of the node to ensure pods running on the node will pass CheckPredicates below.
-		node, err := copyNode(originalNode)
-		if err != nil {
-			glog.Errorf("Error while copying node: %v", err)
-			continue
-		}
-
-		podsOnNode, err := getPodsOnNode(client, node)
-		if err != nil {
-			glog.Warningf("Skipping node %v due to error: %v", node.Name, err)
-			continue
-		}
-
-		nodeInfo := schedulercache.NewNodeInfo(podsOnNode...)
-		nodeInfo.SetNode(node)
+func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos []*nodes.NodeInfo, pod *apiv1.Pod) *nodes.NodeInfo {
+	for _, nodeInfo := range nodeInfos {
+		kubeNodeInfo := schedulercache.NewNodeInfo(nodeInfo.Pods...)
+		kubeNodeInfo.SetNode(nodeInfo.Node)
 
 		// Pretend pod isn't scheduled
 		pod.Spec.NodeName = ""
 
 		// Check with the schedulers predicates to find a node to schedule on
-		if err := predicateChecker.CheckPredicates(pod, nodeInfo); err == nil {
-			return node
+		if err := predicateChecker.CheckPredicates(pod, kubeNodeInfo); err == nil {
+			return nodeInfo
 		}
 	}
 	return nil
 }
 
-// Genereates a list of Pods that are running on worker nodes
-// List is sorted such that pods come from emptier nodes first when being
-// considered for rescheduling
-func filterWorkerNodePods(client kube_client.Interface, allNodes []*apiv1.Node, allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
-	workerNodes := []*apiv1.Node{}
-	for _, node := range allNodes {
-		if isWorkerNode(node) {
-			workerNodes = append(workerNodes, node)
+// Goes through a list of pods and works out new nodes to place them on.
+// Returns an error if any of the pods won't fit onto existing spot nodes.
+func canDrainNode(kubeClient kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos nodes.NodeInfoArray, pods []*apiv1.Pod) error {
+	// Create a copy of the nodeInfos so that we can modify the list within this
+	// call
+	nodePlan := nodeInfos.CopyNodeInfos()
+
+	for _, pod := range pods {
+		// Works out if a spot node is available for rescheduling
+		spotNodeInfo := findSpotNodeForPod(kubeClient, predicateChecker, nodePlan, pod)
+		if spotNodeInfo == nil {
+			return fmt.Errorf("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
+		} else {
+			glog.Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.Node.ObjectMeta.Name)
+			spotNodeInfo.AddPod(kubeClient, pod)
 		}
 	}
 
-	// Sort nodes by least requested CPU first (Greatest spare CPU)
-	sort.Slice(workerNodes, func(i int, j int) bool {
-		iCPU, _, err := getNodeSpareCapacity(client, workerNodes[i])
-		if err != nil {
-			glog.Errorf("Failed to find node capacity %v", err)
-		}
-		jCPU, _, err := getNodeSpareCapacity(client, workerNodes[j])
-		if err != nil {
-			glog.Errorf("Failed to find node capacity %v", err)
-		}
-		return iCPU > jCPU
-	})
-
-	// Gets pods running on these nodes that are managed by a ReplicaSet
-	workerNodePods := []*apiv1.Pod{}
-	for _, node := range workerNodes {
-		podsOnNode, err := getPodsOnNode(client, node)
-		if err != nil {
-			glog.Errorf("Failed to find pods on %v", node.Name)
-		}
-		for _, pod := range podsOnNode {
-			if isReplicaSetPod(pod) && !podsBeingProcessed.Has(pod) {
-				workerNodePods = append(workerNodePods, pod)
-			}
-		}
-	}
-
-	return workerNodePods
+	return nil
 }
 
-// Determines if a pod is managed by a ReplicaSet
-func isReplicaSetPod(pod *apiv1.Pod) bool {
-	return len(pod.ObjectMeta.OwnerReferences) > 0 && pod.ObjectMeta.OwnerReferences[0].Kind == "ReplicaSet"
-}
-
-// Determines if a node has the spotNodeLabel assigned
-func isSpotNode(node *apiv1.Node) bool {
-	_, found := node.ObjectMeta.Labels[spotNodeLabel]
-	return found
-}
-
-// Determines if a node has the workerNodeLabel assigned
-func isWorkerNode(node *apiv1.Node) bool {
-	_, found := node.ObjectMeta.Labels[workerNodeLabel]
-	return found
-}
-
-// Gets a list of pods that are running on the given node
-func getPodsOnNode(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod, error) {
-	podsOnNode, err := client.CoreV1().Pods(apiv1.NamespaceAll).List(
-		metav1.ListOptions{FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node.Name}).String()})
+// Performs a drain on given node and updates the nextDrainTime variable.
+// Returns an error if the drain fails.
+func drainNode(kubeClient kube_client.Interface, recorder kube_record.EventRecorder, node *apiv1.Node, pods []*apiv1.Pod, maxGracefulTermination int, podEvictionTimeout time.Duration) error {
+	err := drain.DrainNode(node, pods, kubeClient, recorder, maxGracefulTermination, podEvictionTimeout, drain.EvictionRetryTime)
 	if err != nil {
-		return []*apiv1.Pod{}, err
+		metrics.UpdateNodeDrainCount("Failure", node.Name)
+		return err
 	}
 
-	pods := make([]*apiv1.Pod, 0)
-	for i := range podsOnNode.Items {
-		pods = append(pods, &podsOnNode.Items[i])
-	}
-	return pods, nil
+	metrics.UpdateNodeDrainCount("Success", node.Name)
+	return nil
 }
 
-// Works out spare CPU and Memory for a node and returns in MilliValues
-// (Pod requests are stored as MilliValues hence the return type here)
-func getNodeSpareCapacity(client kube_client.Interface, node *apiv1.Node) (int64, int64, error) {
-	nodeCPU := node.Status.Capacity.Cpu().MilliValue()
-	nodeMemory := node.Status.Capacity.Memory().MilliValue()
-
-	podsOnNode, err := getPodsOnNode(client, node)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	var CPURequests, MemoryRequests int64 = 0, 0
-
-	for _, pod := range podsOnNode {
-		podCPURequest, podMemoryRequest := getPodRequests(pod)
-		CPURequests += podCPURequest
-		MemoryRequests += podMemoryRequest
-	}
-
-	return nodeCPU - CPURequests, nodeMemory - MemoryRequests, nil
-}
-
-// Returns the total requested CPU and Memory for all of the containers in a
-// given Pod. (Returned as MilliValues)
-func getPodRequests(pod *apiv1.Pod) (int64, int64) {
-	var CPUTotal, MemoryTotal int64 = 0, 0
-	if len(pod.Spec.Containers) > 0 {
-		for _, container := range pod.Spec.Containers {
-			CPURequest := container.Resources.Requests.Cpu().MilliValue()
-			MemoryRequest := container.Resources.Requests.Memory().MilliValue()
-
-			CPUTotal += CPURequest
-			MemoryTotal += MemoryRequest
-		}
-	}
-	return CPUTotal, MemoryTotal
-}
-
-// Works out if there is allowance in a pod's disruption budgets for it to be delted
-func havePodDisruptionAllowance(lister *kube_utils.PodDisruptionBudgetLister, pod *apiv1.Pod) (bool, error) {
-	pdbs, err := getPodPodDisruptionBudgets(lister, pod)
-	for _, pdb := range pdbs {
-		if pdb.Status.PodDisruptionsAllowed < 1 {
-			return false, err
-		}
-	}
-	return true, err
-}
-
-// gets PodDisruptionBudgets associated with the given pod
-func getPodPodDisruptionBudgets(lister *kube_utils.PodDisruptionBudgetLister, pod *apiv1.Pod) ([]*v1beta1.PodDisruptionBudget, error) {
-	if len(pod.Labels) == 0 {
-		return nil, fmt.Errorf("No PodDisruptionBudgets found for pod %v because it has no labels", pod.Name)
-	}
-
-	allPDBs, err := lister.List()
-	if err != nil {
-		return make([]*v1beta1.PodDisruptionBudget, 0), err
-	}
-
-	var selector labels.Selector
-
-	pdbs := make([]*v1beta1.PodDisruptionBudget, 0)
-	for _, pdb := range allPDBs {
-		selector, err = metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
+// Goes through a list of NodeInfos and updates the metrics system with the
+// number of pods that the rescheduler understands (So not daemonsets for
+// instance) that are on each of the nodes, labelling them as spot nodes.
+func updateSpotNodeMetrics(spotNodeInfos nodes.NodeInfoArray, pdbs []*policyv1.PodDisruptionBudget) {
+	for _, nodeInfo := range spotNodeInfos {
+		// Get a list of pods that are on the node (Only the types considered by the rescheduler)
+		podsOnNode, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, pdbs, false, false, false, false, nil, 0, time.Now())
 		if err != nil {
-			glog.Warningf("invalid selector: %v", err)
+			glog.Errorf("Failed to get pods on spot node: %v", err)
 			continue
 		}
-		// If a PDB with a nil or empty selector creeps in, it should match nothing, not everything.
-		if selector.Empty() || !selector.Matches(labels.Set(pod.Labels)) {
-			continue
-		}
-		pdbs = append(pdbs, pdb)
+		metrics.UpdateNodePodsCount(nodes.SpotNodeLabel, nodeInfo.Node.Name, len(podsOnNode))
+
 	}
-	return pdbs, nil
 }

@@ -18,27 +18,79 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/pusher/spot-rescheduler/nodes"
+)
+
+const (
+	reschedulerNamespace = "spot_rescheduler"
 )
 
 var (
-	// UnschedulableCriticalPodsCount tracks the number of time when a critical pod was unschedublable.
-	UnschedulableCriticalPodsCount = prometheus.NewCounterVec(
+	// nodePodsCount tracks how many pods are nodes by type and by node name.
+	nodePodsCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "rescheduler",
-			Name:      "unschedulable_ciritical_pods_count",
-			Help:      "Number of times a critical pod was unschedulable.",
+			Namespace: reschedulerNamespace,
+			Name:      "node_pods_count",
+			Help:      "Number of pods on each node.",
 		},
-		[]string{"k8s_app"})
-	// DeletedPodsCount tracks the number of deletion of pods in order to schedule a critical one.
-	DeletedPodsCount = prometheus.NewCounter(
+		[]string{"node_type", "node"})
+
+	// nodesCount tracks the number of nodes in the cluster.
+	nodesCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: reschedulerNamespace,
+			Name:      "nodes_count",
+			Help:      "Number of nodes in cluster.",
+		}, []string{"node_type"},
+	)
+
+	// nodeDrainCount counts the number of nodes drained by the rescheduler.
+	nodeDrainCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "rescheduler",
-			Name:      "deleted_pods_count",
-			Help:      "Number of pods deleted in order to schedule a critical pod.",
-		})
+			Namespace: reschedulerNamespace,
+			Name:      "node_drain_total",
+			Help:      "Number of nodes drained by rescheduler.",
+		}, []string{"drain_state", "node"},
+	)
+
+	// evictionsCount counts the number of pods evicted by the rescheduler
+	evictionsCount = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: reschedulerNamespace,
+			Name:      "evicted_pods_total",
+			Help:      "Number of pods evicted by the rescheduler.",
+		},
+	)
 )
 
 func init() {
-	prometheus.MustRegister(UnschedulableCriticalPodsCount)
-	prometheus.MustRegister(DeletedPodsCount)
+	prometheus.MustRegister(nodePodsCount)
+	prometheus.MustRegister(nodesCount)
+	prometheus.MustRegister(nodeDrainCount)
+	prometheus.MustRegister(evictionsCount)
+}
+
+// UpdateNodesMap updates the metrics calculated by the nodes map
+func UpdateNodesMap(nm nodes.NodesMap) {
+	if nm == nil {
+		return
+	}
+	nodesCount.WithLabelValues(nodes.OnDemandNodeLabel).Set(float64(len(nm[nodes.OnDemand])))
+	nodesCount.WithLabelValues(nodes.SpotNodeLabel).Set(float64(len(nm[nodes.Spot])))
+
+}
+
+// UpdateNodePodsCount updates nodePodsCount for a given node
+func UpdateNodePodsCount(nodeType string, nodeName string, numPods int) {
+	nodePodsCount.WithLabelValues(nodeType, nodeName).Set(float64(numPods))
+}
+
+// UpdateEvictionsCount adds 1 to the evictions counter
+func UpdateEvictionsCount() {
+	evictionsCount.Add(1)
+}
+
+// UpdateNodeDrainCount updates the number drains and drain state for a node
+func UpdateNodeDrainCount(state string, nodeName string) {
+	nodeDrainCount.WithLabelValues(state, nodeName).Add(1)
 }
