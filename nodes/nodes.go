@@ -63,7 +63,7 @@ func NewNodeMap(client kube_client.Interface, nodes []*apiv1.Node) (NodesMap, er
 		case isSpotNode(node):
 			nodeMap[Spot] = append(nodeMap[Spot], nodeInfo)
 			continue
-		case isWorkerNode(node):
+		case isOnDemandNode(node):
 			nodeMap[OnDemand] = append(nodeMap[OnDemand], nodeInfo)
 			continue
 		default:
@@ -144,8 +144,8 @@ func isSpotNode(node *apiv1.Node) bool {
 	return found
 }
 
-// Determines if a node has the workerNodeLabel assigned
-func isWorkerNode(node *apiv1.Node) bool {
+// Determines if a node has the OnDemandNodeLabel assigned
+func isOnDemandNode(node *apiv1.Node) bool {
 	_, found := node.ObjectMeta.Labels[OnDemandNodeLabel]
 	return found
 }
