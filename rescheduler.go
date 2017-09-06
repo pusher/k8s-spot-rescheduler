@@ -73,8 +73,6 @@ var (
 
 	listenAddress = flags.String("listen-address", "localhost:9235",
 		`Address to listen on for serving prometheus metrics`)
-
-	nextDrainTime = time.Now()
 )
 
 func main() {
@@ -124,6 +122,8 @@ func main() {
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
 	podDisruptionBudgetLister := kube_utils.NewPodDisruptionBudgetLister(kubeClient, stopChannel)
 	unschedulablePodLister := kube_utils.NewUnschedulablePodLister(kubeClient, stopChannel)
+
+	nextDrainTime := time.Now()
 
 	for {
 		select {
@@ -219,6 +219,7 @@ func main() {
 					if err != nil {
 						glog.Errorf("Failed to drain node: %v", err)
 					}
+					nextDrainTime = time.Now().Add(*nodeDrainDelay)
 					break
 				}
 
@@ -304,12 +305,10 @@ func drainNode(kubeClient kube_client.Interface, recorder kube_record.EventRecor
 	err := drain.DrainNode(node, pods, kubeClient, recorder, maxGracefulTermination, podEvictionTimeout, drain.EvictionRetryTime)
 	if err != nil {
 		metrics.UpdateNodeDrainCount("Failure", node.Name)
-		nextDrainTime = time.Now().Add(*nodeDrainDelay)
 		return err
 	}
 
 	metrics.UpdateNodeDrainCount("Success", node.Name)
-	nextDrainTime = time.Now().Add(*nodeDrainDelay)
 	return nil
 }
 
