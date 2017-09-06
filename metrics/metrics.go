@@ -26,7 +26,7 @@ const (
 )
 
 var (
-	// onDemandPodsCount tracks how many pods are on on-demand nodes.
+	// nodePodsCount tracks how many pods are nodes by type and by node name.
 	nodePodsCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: reschedulerNamespace,
@@ -49,7 +49,7 @@ var (
 		prometheus.CounterOpts{
 			Namespace: reschedulerNamespace,
 			Name:      "node_drain_total",
-			Help:      "Number of nodes drained by CA.",
+			Help:      "Number of nodes drained by rescheduler.",
 		}, []string{"drain_state", "node"},
 	)
 
