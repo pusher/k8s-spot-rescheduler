@@ -151,14 +151,16 @@ func isWorkerNode(node *apiv1.Node) bool {
 }
 
 // CopyNodeInfos returns an array of copies of the NodeInfos in this array.
-func (n NodeInfoArray) CopyNodeInfos(client kube_client.Interface) (NodeInfoArray, error) {
+func (n NodeInfoArray) CopyNodeInfos() NodeInfoArray {
 	var arr NodeInfoArray
 	for _, node := range n {
-		nodeInfo, err := newNodeInfo(client, node.Node)
-		if err != nil {
-			return nil, err
+		nodeInfo := &NodeInfo{
+			Node:         node.Node,
+			Pods:         node.Pods,
+			RequestedCPU: node.RequestedCPU,
+			FreeCPU:      node.FreeCPU,
 		}
 		arr = append(arr, nodeInfo)
 	}
-	return arr, nil
+	return arr
 }

@@ -280,10 +280,7 @@ func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulato
 func canDrainNode(kubeClient kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos nodes.NodeInfoArray, pods []*apiv1.Pod) error {
 	// Create a copy of the nodeInfos so that we can modify the list within this
 	// call
-	nodePlan, err := nodeInfos.CopyNodeInfos(kubeClient)
-	if err != nil {
-		return err
-	}
+	nodePlan := nodeInfos.CopyNodeInfos()
 
 	for _, pod := range pods {
 		// Works out if a spot node is available for rescheduling
