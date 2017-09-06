@@ -205,10 +205,10 @@ func main() {
 
 					glog.Infof("Considering %s for removal", nodeInfo.Node.Name)
 
-					// Build plan to move each pod from this node
-					err = buildDrainPlan(kubeClient, predicateChecker, spotNodeInfos, podsForDeletion)
+					// Checks whether or not a node can be drained
+					err = canDrainNode(kubeClient, predicateChecker, spotNodeInfos, podsForDeletion)
 					if err != nil {
-						glog.Errorf("Failed to build plan: %v", err)
+						glog.Errorf("Cannot drain node: %v", err)
 						continue
 					}
 
@@ -276,7 +276,7 @@ func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulato
 
 // Goes through a list of pods and works out new nodes to place them on.
 // Returns an error if any of the pods won't fit onto existing spot nodes.
-func buildDrainPlan(kubeClient kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos nodes.NodeInfoArray, pods []*apiv1.Pod) error {
+func canDrainNode(kubeClient kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos nodes.NodeInfoArray, pods []*apiv1.Pod) error {
 	// Create a copy of the nodeInfos so that we can modify the list within this
 	// call
 	nodePlan, err := nodeInfos.CopyNodeInfos(kubeClient)
