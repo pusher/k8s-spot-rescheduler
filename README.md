@@ -10,6 +10,8 @@ In reality the rescheduler can be used to remove load from any group of nodes on
 
 For example, it could also be used to allow controller nodes to take up slack while new nodes are being scaled up, and then rescheduling those pods when the new capacity becomes available, thus reducing the load on the controllers once again.
 
+This project was inspired by the [Critical Pod Rescheduler](https://github.com/kubernetes/contrib/tree/master/rescheduler) and takes large portions of code from both this repo and the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)).
+
 ## Scope
 ### Does
 * Look for Pods on on-demand instances
@@ -33,6 +35,7 @@ For example, it could also be used to allow controller nodes to take up slack wh
 ### Doesn't
 * Schedule pods (The default scheduler handles this)
 * Scale down empty nodes on your cloud provider (Try the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)))
+* Horizontally scale (No high-availability) - on the [TODO](#TODO)
 
 ## Deployment
 
@@ -96,4 +99,7 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 
 ## [TODO](#todo)
 
-* Add spacial limits - Don't consider spot instances with less than X% spare resource? Don't consider worker instances with less than X% requested? (Might be cleaned up by autoscaler anyway?)
+* Write unit tests for calculation parts of spot-rescheduler
+* Sort out licenses across files
+* Add different log levels for more/less verbose logging
+* Add leader election to make HA
