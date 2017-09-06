@@ -17,27 +17,25 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	goflag "flag"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
 
-	ca_simulator "k8s.io/contrib/cluster-autoscaler/simulator"
-	ca_drain "k8s.io/contrib/cluster-autoscaler/utils/drain"
-
+	"github.com/pusher/spot-rescheduler/drain"
 	"github.com/pusher/spot-rescheduler/metrics"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"github.com/pusher/spot-rescheduler/nodes"
+	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
+	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
+	kube_utils "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	clientv1 "k8s.io/client-go/pkg/api/v1"
 	kube_restclient "k8s.io/client-go/rest"
 	kube_record "k8s.io/client-go/tools/record"
-	kube_utils "k8s.io/contrib/cluster-autoscaler/utils/kubernetes"
 	"k8s.io/kubernetes/pkg/api"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
+	policyv1 "k8s.io/kubernetes/pkg/apis/policy/v1beta1"
 	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	kubectl_util "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
@@ -45,14 +43,6 @@ import (
 	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus"
 	flag "github.com/spf13/pflag"
-)
-
-const (
-	criticalPodAnnotation      = "scheduler.alpha.kubernetes.io/critical-pod"
-	criticalAddonsOnlyTaintKey = "CriticalAddonsOnly"
-	// TaintsAnnotationKey represents the key of taints data (json serialized)
-	// in the Annotations of a Node.
-	TaintsAnnotationKey string = "scheduler.alpha.kubernetes.io/taints"
 )
 
 var (
@@ -70,16 +60,16 @@ var (
 	housekeepingInterval = flags.Duration("housekeeping-interval", 10*time.Second,
 		`How often rescheduler takes actions.`)
 
-	systemNamespace = flags.String("system-namespace", metav1.NamespaceSystem,
-		`Namespace to watch for critical addons.`)
+	nodeDrainDelay = flags.Duration("node-drain-delay", 10*time.Minute,
+		`How long the scheduler should wait between draining nodes.`)
 
-	initialDelay = flags.Duration("initial-delay", 2*time.Minute,
-		`How long should rescheduler wait after start to make sure
-		 all critical addons had a chance to start.`)
+	podEvictionTimeout = flags.Duration("pod-eviction-timeout", 2*time.Minute,
+		`How long should the rescheduler attempt to retrieve successful pod
+		 evictions for.`)
 
-	podScheduledTimeout = flags.Duration("pod-scheduled-timeout", 10*time.Minute,
-		`How long should rescheduler wait for critical pod to be scheduled
-		 after evicting pods to make a spot for it.`)
+	maxGracefulTermination = flags.Duration("max-graceful-termination", 2*time.Minute,
+		`How long should the rescheduler wait for pods to shutdown gracefully before
+		 failing the node drain attempt.`)
 
 	listenAddress = flags.String("listen-address", "localhost:9235",
 		`Address to listen on for serving prometheus metrics`)
@@ -93,18 +83,26 @@ func main() {
 	logToStdErr.DefValue = "true"
 	flags.Set("logtostderr", "true")
 
+	// Add nodes labels as flags
+	flags.StringVar(&nodes.OnDemandNodeLabel,
+		"on-demand-node-label",
+		"node-role.kubernetes.io/worker",
+		`Name of label on nodes to be considered for draining.`)
+	flags.StringVar(&nodes.SpotNodeLabel,
+		"spot-node-label",
+		"node-role.kubernetes.io/spot-worker",
+		`Name of label on nodes to be considered as targets for pods.`)
+
 	flags.Parse(os.Args)
 
 	glog.Infof("Running Rescheduler")
 
+	// Register metrics from metrics.go
 	go func() {
 		http.Handle("/metrics", prometheus.Handler())
 		err := http.ListenAndServe(*listenAddress, nil)
 		glog.Fatalf("Failed to start metrics: %v", err)
 	}()
-
-	// TODO(piosz): figure out a better way of verifying cluster stabilization here.
-	time.Sleep(*initialDelay)
 
 	kubeClient, err := createKubeClient(flags, *inCluster)
 	if err != nil {
@@ -113,94 +111,126 @@ func main() {
 
 	recorder := createEventRecorder(kubeClient)
 
-	predicateChecker, err := ca_simulator.NewPredicateChecker(kubeClient)
+	stopChannel := make(chan struct{})
+
+	// Predicate checker from K8s scheduler works out if a Pod could schedule onto a node
+	predicateChecker, err := simulator.NewPredicateChecker(kubeClient, stopChannel)
 	if err != nil {
 		glog.Fatalf("Failed to create predicate checker: %v", err)
 	}
 
-	stopChannel := make(chan struct{})
-	unschedulablePodLister := kube_utils.NewUnschedulablePodInNamespaceLister(kubeClient, *systemNamespace, stopChannel)
 	nodeLister := kube_utils.NewReadyNodeLister(kubeClient, stopChannel)
+	podDisruptionBudgetLister := kube_utils.NewPodDisruptionBudgetLister(kubeClient, stopChannel)
+	unschedulablePodLister := kube_utils.NewUnschedulablePodLister(kubeClient, stopChannel)
 
-	// TODO(piosz): consider reseting this set once every few hours.
-	podsBeingProcessed := NewPodSet()
-
-	// As tolerations/taints feature changed from being specified in annotations
-	// to being specified in fields in Kubernetes 1.6, we need to make sure that
-	// any annotations that were created in the previous versions are removed.
-	releaseAllTaintsDeprecated(kubeClient, nodeLister)
-
-	releaseAllTaints(kubeClient, nodeLister, podsBeingProcessed)
+	nextDrainTime := time.Now()
 
 	for {
 		select {
+		// Run forever, every housekeepingInterval seconds
 		case <-time.After(*housekeepingInterval):
 			{
-				allUnschedulablePods, err := unschedulablePodLister.List()
-				if err != nil {
-					glog.Errorf("Failed to list unscheduled pods: %v", err)
+				// Don't do anything if we are waiting for the drain delay timer
+				if time.Until(nextDrainTime) > 0 {
+					glog.Infof("Waiting %s for drain delay timer.", time.Until(nextDrainTime))
 					continue
 				}
 
-				criticalPods := filterCriticalPods(allUnschedulablePods, podsBeingProcessed)
-
-				if len(criticalPods) > 0 {
-					for _, pod := range criticalPods {
-						glog.Infof("Critical pod %s is unschedulable. Trying to find a spot for it.", podId(pod))
-						k8sApp := "unknown"
-						if l, found := pod.ObjectMeta.Labels["k8s-app"]; found {
-							k8sApp = l
-						}
-						metrics.UnschedulableCriticalPodsCount.WithLabelValues(k8sApp).Inc()
-						nodes, err := nodeLister.List()
-						if err != nil {
-							glog.Errorf("Failed to list nodes: %v", err)
-							continue
-						}
-
-						node := findNodeForPod(kubeClient, predicateChecker, nodes, pod)
-						if node == nil {
-							glog.Errorf("Pod %s can't be scheduled on any existing node.", podId(pod))
-							recorder.Eventf(pod, apiv1.EventTypeNormal, "PodDoestFitAnyNode",
-								"Critical pod %s doesn't fit on any node.", podId(pod))
-							continue
-						}
-						glog.Infof("Trying to place the pod on node %v", node.Name)
-
-						err = prepareNodeForPod(kubeClient, recorder, predicateChecker, node, pod)
-						if err != nil {
-							glog.Warningf("%+v", err)
-						} else {
-							podsBeingProcessed.Add(pod)
-							go waitForScheduled(kubeClient, podsBeingProcessed, pod)
-						}
-					}
+				// Don't run if pods are unschedulable
+				unschedulablePods, err := unschedulablePodLister.List()
+				if err != nil {
+					glog.Errorf("Failed to get unschedulable pods: %v", err)
+				}
+				if len(unschedulablePods) > 0 {
+					glog.Info("Waiting for unschedulable pods to be scheduled.")
+					continue
 				}
 
-				releaseAllTaints(kubeClient, nodeLister, podsBeingProcessed)
+				glog.Info("Starting node processing.")
+
+				// Get all nodes in the cluster
+				allNodes, err := nodeLister.List()
+				if err != nil {
+					glog.Errorf("Failed to list nodes: %v", err)
+					continue
+				}
+
+				// Build a map of nodeInfo structs
+				nodeMap, err := nodes.NewNodeMap(kubeClient, allNodes)
+				if err != nil {
+					glog.Errorf("Failed to build node map; %v", err)
+					continue
+				}
+
+				// Update metrics
+				metrics.UpdateNodesMap(nodeMap)
+
+				// Get PodDisruptionBudgets
+				allPDBs, err := podDisruptionBudgetLister.List()
+				if err != nil {
+					glog.Errorf("Failed to list PDBs: %v", err)
+					continue
+				}
+
+				// Get onDemand and spot nodeInfoArrays
+				onDemandNodeInfos := nodeMap[nodes.OnDemand]
+				spotNodeInfos := nodeMap[nodes.Spot]
+
+				// Update spot node metrics
+				updateSpotNodeMetrics(spotNodeInfos, allPDBs)
+
+				if len(onDemandNodeInfos) < 1 {
+					glog.Info("No nodes to process.")
+				}
+
+				// Go through each onDemand node in turn
+				// Build a plan to move pods onto other nodes
+				// In the case that all can be moved, drain the node
+				for _, nodeInfo := range onDemandNodeInfos {
+
+					// Get a list of pods that we would need to move onto other nodes
+					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, allPDBs, false, false, false, false, nil, 0, time.Now())
+					if err != nil {
+						glog.Errorf("Failed to get pods for consideration: %v", err)
+						continue
+					}
+
+					// Update the number of pods on this node's metrics
+					metrics.UpdateNodePodsCount(nodes.OnDemandNodeLabel, nodeInfo.Node.Name, len(podsForDeletion))
+					if len(podsForDeletion) < 1 {
+						// Nothing to do here
+						glog.Infof("No pods on %s, skipping.", nodeInfo.Node.Name)
+						continue
+					}
+
+					glog.Infof("Considering %s for removal", nodeInfo.Node.Name)
+
+					// Checks whether or not a node can be drained
+					err = canDrainNode(kubeClient, predicateChecker, spotNodeInfos, podsForDeletion)
+					if err != nil {
+						glog.Errorf("Cannot drain node: %v", err)
+						continue
+					}
+
+					// If building plan was successful, can drain node.
+					glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.Node.Name)
+					// Drain the node - places eviction on each pod moving them in turn.
+					err = drainNode(kubeClient, recorder, nodeInfo.Node, podsForDeletion, int(maxGracefulTermination.Seconds()), *podEvictionTimeout)
+					if err != nil {
+						glog.Errorf("Failed to drain node: %v", err)
+					}
+					nextDrainTime = time.Now().Add(*nodeDrainDelay)
+					break
+				}
+
+				glog.Info("Finished processing nodes.")
 			}
 		}
 	}
 }
 
-func waitForScheduled(client kube_client.Interface, podsBeingProcessed *podSet, pod *apiv1.Pod) {
-	glog.Infof("Waiting for pod %s to be scheduled", podId(pod))
-	err := wait.Poll(time.Second, *podScheduledTimeout, func() (bool, error) {
-		p, err := client.CoreV1().Pods(pod.Namespace).Get(pod.Name, metav1.GetOptions{})
-		if err != nil {
-			glog.Warningf("Error while getting pod %s: %v", podId(pod), err)
-			return false, nil
-		}
-		return p.Spec.NodeName != "", nil
-	})
-	if err != nil {
-		glog.Warningf("Timeout while waiting for pod %s to be scheduled after %v.", podId(pod), *podScheduledTimeout)
-	} else {
-		glog.Infof("Pod %v was successfully scheduled.", podId(pod))
-	}
-	podsBeingProcessed.Remove(pod)
-}
-
+// Configure the kube client used to access the api, either from kubeconfig or
+//from pod environment if running in the cluster
 func createKubeClient(flags *flag.FlagSet, inCluster bool) (kube_client.Interface, error) {
 	var config *kube_restclient.Config
 	var err error
@@ -217,6 +247,7 @@ func createKubeClient(flags *flag.FlagSet, inCluster bool) (kube_client.Interfac
 	return kube_client.NewForConfigOrDie(config), nil
 }
 
+// Create an event broadcaster so that we can call events when we modify the system
 func createEventRecorder(client kube_client.Interface) kube_record.EventRecorder {
 	eventBroadcaster := kube_record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
@@ -224,243 +255,72 @@ func createEventRecorder(client kube_client.Interface) kube_record.EventRecorder
 	return eventBroadcaster.NewRecorder(api.Scheme, clientv1.EventSource{Component: "rescheduler"})
 }
 
-// copied from Kubernetes 1.5.4
-func getTaintsFromNodeAnnotations(annotations map[string]string) ([]apiv1.Taint, error) {
-	var taints []apiv1.Taint
-	if len(annotations) > 0 && annotations[TaintsAnnotationKey] != "" {
-		err := json.Unmarshal([]byte(annotations[TaintsAnnotationKey]), &taints)
-		if err != nil {
-			return []apiv1.Taint{}, err
+// Determines if any of the nodes meet the predicates that allow the Pod to be
+// scheduled on the node, and returns the node if it finds a suitable one.
+// Currently sorts nodes by most requested CPU in an attempt to fill fuller
+// nodes first (Attempting to bin pack)
+func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos []*nodes.NodeInfo, pod *apiv1.Pod) *nodes.NodeInfo {
+	for _, nodeInfo := range nodeInfos {
+		kubeNodeInfo := schedulercache.NewNodeInfo(nodeInfo.Pods...)
+		kubeNodeInfo.SetNode(nodeInfo.Node)
+
+		// Pretend pod isn't scheduled
+		pod.Spec.NodeName = ""
+
+		// Check with the schedulers predicates to find a node to schedule on
+		if err := predicateChecker.CheckPredicates(pod, kubeNodeInfo); err == nil {
+			return nodeInfo
 		}
 	}
-	return taints, nil
+	return nil
 }
 
-func releaseAllTaintsDeprecated(client kube_client.Interface, nodeLister *kube_utils.ReadyNodeLister) {
-	glog.Infof("Removing all annotation taints because they are no longer supported.")
-	nodes, err := nodeLister.List()
-	if err != nil {
-		glog.Warningf("Cannot release taints - error while listing nodes: %v", err)
-		return
+// Goes through a list of pods and works out new nodes to place them on.
+// Returns an error if any of the pods won't fit onto existing spot nodes.
+func canDrainNode(kubeClient kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos nodes.NodeInfoArray, pods []*apiv1.Pod) error {
+	// Create a copy of the nodeInfos so that we can modify the list within this
+	// call
+	nodePlan := nodeInfos.CopyNodeInfos()
+
+	for _, pod := range pods {
+		// Works out if a spot node is available for rescheduling
+		spotNodeInfo := findSpotNodeForPod(kubeClient, predicateChecker, nodePlan, pod)
+		if spotNodeInfo == nil {
+			return fmt.Errorf("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
+		} else {
+			glog.Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.Node.ObjectMeta.Name)
+			spotNodeInfo.AddPod(kubeClient, pod)
+		}
 	}
-	releaseTaintsOnNodesDeprecated(client, nodes)
+
+	return nil
 }
 
-func releaseTaintsOnNodesDeprecated(client kube_client.Interface, nodes []*apiv1.Node) {
-	for _, node := range nodes {
-		taints, err := getTaintsFromNodeAnnotations(node.Annotations)
-		if err != nil {
-			glog.Warningf("Error while getting Taints for node %v: %v", node.Name, err)
-			continue
-		}
-
-		newTaints := make([]apiv1.Taint, 0)
-		for _, taint := range taints {
-			if taint.Key == criticalAddonsOnlyTaintKey {
-				glog.Infof("Releasing taint %+v on node %v", taint, node.Name)
-			} else {
-				newTaints = append(newTaints, taint)
-			}
-		}
-
-		if len(newTaints) != len(taints) {
-			taintsJson, err := json.Marshal(newTaints)
-			if err != nil {
-				glog.Warningf("Error while releasing taints on node %v: %v", node.Name, err)
-				continue
-			}
-
-			node.Annotations[TaintsAnnotationKey] = string(taintsJson)
-			_, err = client.CoreV1().Nodes().Update(node)
-			if err != nil {
-				glog.Warningf("Error while releasing taints on node %v: %v", node.Name, err)
-			} else {
-				glog.Infof("Successfully released all taints on node %v", node.Name)
-			}
-		}
-	}
-}
-
-func releaseAllTaints(client kube_client.Interface, nodeLister *kube_utils.ReadyNodeLister, podsBeingProcessed *podSet) {
-	nodes, err := nodeLister.List()
+// Performs a drain on given node and updates the nextDrainTime variable.
+// Returns an error if the drain fails.
+func drainNode(kubeClient kube_client.Interface, recorder kube_record.EventRecorder, node *apiv1.Node, pods []*apiv1.Pod, maxGracefulTermination int, podEvictionTimeout time.Duration) error {
+	err := drain.DrainNode(node, pods, kubeClient, recorder, maxGracefulTermination, podEvictionTimeout, drain.EvictionRetryTime)
 	if err != nil {
-		glog.Warningf("Cannot release taints - error while listing nodes: %v", err)
-		return
-	}
-	releaseTaintsOnNodes(client, nodes, podsBeingProcessed)
-}
-
-func releaseTaintsOnNodes(client kube_client.Interface, nodes []*apiv1.Node, podsBeingProcessed *podSet) {
-	for _, node := range nodes {
-		newTaints := make([]apiv1.Taint, 0)
-		for _, taint := range node.Spec.Taints {
-			if taint.Key == criticalAddonsOnlyTaintKey && !podsBeingProcessed.HasId(taint.Value) {
-				glog.Infof("Releasing taint %+v on node %v", taint, node.Name)
-			} else {
-				newTaints = append(newTaints, taint)
-			}
-		}
-
-		if len(newTaints) != len(node.Spec.Taints) {
-			node.Spec.Taints = newTaints
-			_, err := client.CoreV1().Nodes().Update(node)
-			if err != nil {
-				glog.Warningf("Error while releasing taints on node %v: %v", node.Name, err)
-			} else {
-				glog.Infof("Successfully released all taints on node %v", node.Name)
-			}
-		}
-	}
-}
-
-// The caller of this function must remove the taint if this function returns error.
-func prepareNodeForPod(client kube_client.Interface, recorder kube_record.EventRecorder, predicateChecker *ca_simulator.PredicateChecker, originalNode *apiv1.Node, criticalPod *apiv1.Pod) error {
-	// Operate on a copy of the node to ensure pods running on the node will pass CheckPredicates below.
-	node, err := copyNode(originalNode)
-	if err != nil {
-		return fmt.Errorf("Error while copying node: %v", err)
-	}
-	err = addTaint(client, originalNode, podId(criticalPod))
-	if err != nil {
-		return fmt.Errorf("Error while adding taint: %v", err)
-	}
-
-	requiredPods, otherPods, err := groupPods(client, node)
-	if err != nil {
+		metrics.UpdateNodeDrainCount("Failure", node.Name)
 		return err
 	}
 
-	nodeInfo := schedulercache.NewNodeInfo(requiredPods...)
-	nodeInfo.SetNode(node)
-
-	// check whether critical pod still fit
-	if err := predicateChecker.CheckPredicates(criticalPod, nodeInfo); err != nil {
-		return fmt.Errorf("Pod %s doesn't fit to node %v: %v", podId(criticalPod), node.Name, err)
-	}
-	requiredPods = append(requiredPods, criticalPod)
-	nodeInfo = schedulercache.NewNodeInfo(requiredPods...)
-	nodeInfo.SetNode(node)
-
-	for _, p := range otherPods {
-		if err := predicateChecker.CheckPredicates(p, nodeInfo); err != nil {
-			glog.Infof("Pod %s will be deleted in order to schedule critical pod %s.", podId(p), podId(criticalPod))
-			recorder.Eventf(p, apiv1.EventTypeNormal, "DeletedByRescheduler",
-				"Deleted by rescheduler in order to schedule critical pod %s.", podId(criticalPod))
-			// TODO(piosz): add better support of graceful deletion
-			delErr := client.CoreV1().Pods(p.Namespace).Delete(p.Name, metav1.NewDeleteOptions(10))
-			if delErr != nil {
-				return fmt.Errorf("Failed to delete pod %s: %v", podId(p), delErr)
-			}
-			metrics.DeletedPodsCount.Inc()
-		} else {
-			newPods := append(nodeInfo.Pods(), p)
-			nodeInfo = schedulercache.NewNodeInfo(newPods...)
-			nodeInfo.SetNode(node)
-		}
-	}
-
-	// TODO(piosz): how to reset scheduler backoff?
+	metrics.UpdateNodeDrainCount("Success", node.Name)
 	return nil
 }
 
-func copyNode(node *apiv1.Node) (*apiv1.Node, error) {
-	objCopy, err := api.Scheme.DeepCopy(node)
-	if err != nil {
-		return nil, err
-	}
-	copied, ok := objCopy.(*apiv1.Node)
-	if !ok {
-		return nil, fmt.Errorf("expected Node, got %#v", objCopy)
-	}
-	return copied, nil
-}
-
-func addTaint(client kube_client.Interface, node *apiv1.Node, value string) error {
-	node.Spec.Taints = append(node.Spec.Taints, apiv1.Taint{
-		Key:    criticalAddonsOnlyTaintKey,
-		Value:  value,
-		Effect: apiv1.TaintEffectNoSchedule,
-	})
-
-	if _, err := client.CoreV1().Nodes().Update(node); err != nil {
-		return err
-	}
-	return nil
-}
-
-// Currently the logic choose a random node which satisfies requirements (a critical pod fits there).
-// TODO(piosz): add a prioritization to this logic
-func findNodeForPod(client kube_client.Interface, predicateChecker *ca_simulator.PredicateChecker, nodes []*apiv1.Node, pod *apiv1.Pod) *apiv1.Node {
-	for _, node := range nodes {
-		// ignore nodes with taints
-		if err := checkTaints(node); err != nil {
-			glog.Warningf("Skipping node %v due to %v", node.Name, err)
-		}
-
-		requiredPods, _, err := groupPods(client, node)
+// Goes through a list of NodeInfos and updates the metrics system with the
+// number of pods that the rescheduler understands (So not daemonsets for
+// instance) that are on each of the nodes, labelling them as spot nodes.
+func updateSpotNodeMetrics(spotNodeInfos nodes.NodeInfoArray, pdbs []*policyv1.PodDisruptionBudget) {
+	for _, nodeInfo := range spotNodeInfos {
+		// Get a list of pods that are on the node (Only the types considered by the rescheduler)
+		podsOnNode, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, pdbs, false, false, false, false, nil, 0, time.Now())
 		if err != nil {
-			glog.Warningf("Skipping node %v due to error: %v", node.Name, err)
+			glog.Errorf("Failed to get pods on spot node: %v", err)
 			continue
 		}
+		metrics.UpdateNodePodsCount(nodes.SpotNodeLabel, nodeInfo.Node.Name, len(podsOnNode))
 
-		nodeInfo := schedulercache.NewNodeInfo(requiredPods...)
-		nodeInfo.SetNode(node)
-
-		if err := predicateChecker.CheckPredicates(pod, nodeInfo); err == nil {
-			return node
-		}
 	}
-	return nil
-}
-
-func checkTaints(node *apiv1.Node) error {
-	for _, taint := range node.Spec.Taints {
-		if taint.Key == criticalAddonsOnlyTaintKey {
-			return fmt.Errorf("CriticalAddonsOnly taint with value: %v", taint.Value)
-		}
-	}
-	return nil
-}
-
-// groupPods divides pods running on <node> into those which can't be deleted and the others
-func groupPods(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod, []*apiv1.Pod, error) {
-	podsOnNode, err := client.CoreV1().Pods(apiv1.NamespaceAll).List(
-		metav1.ListOptions{FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node.Name}).String()})
-	if err != nil {
-		return []*apiv1.Pod{}, []*apiv1.Pod{}, err
-	}
-
-	requiredPods := make([]*apiv1.Pod, 0)
-	otherPods := make([]*apiv1.Pod, 0)
-	for i := range podsOnNode.Items {
-		pod := &podsOnNode.Items[i]
-
-		creatorRef, err := ca_drain.CreatorRefKind(pod)
-		if err != nil {
-			return []*apiv1.Pod{}, []*apiv1.Pod{}, err
-		}
-
-		if ca_drain.IsMirrorPod(pod) || creatorRef == "DaemonSet" || isCriticalPod(pod) {
-			requiredPods = append(requiredPods, pod)
-		} else {
-			otherPods = append(otherPods, pod)
-		}
-	}
-
-	return requiredPods, otherPods, nil
-}
-
-func filterCriticalPods(allPods []*apiv1.Pod, podsBeingProcessed *podSet) []*apiv1.Pod {
-	criticalPods := []*apiv1.Pod{}
-	for _, pod := range allPods {
-		if isCriticalPod(pod) && !podsBeingProcessed.Has(pod) {
-			criticalPods = append(criticalPods, pod)
-		}
-	}
-	return criticalPods
-}
-
-func isCriticalPod(pod *apiv1.Pod) bool {
-	_, found := pod.ObjectMeta.Annotations[criticalPodAnnotation]
-	return found
 }

@@ -15,3 +15,10 @@
 
 # Project-local wercker build cache
 .wercker/
+
+# Project-local vendor folder
+vendor/
+
+# Kubernetes config
+kubeconfig
+credentials/
