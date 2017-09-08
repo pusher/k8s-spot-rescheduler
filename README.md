@@ -35,7 +35,6 @@ This project was inspired by the [Critical Pod Rescheduler](https://github.com/k
 ### Doesn't
 * Schedule pods (The default scheduler handles this)
 * Scale down empty nodes on your cloud provider (Try the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)))
-* Horizontally scale (No high-availability) - on the [TODO](#TODO)
 
 ## Deployment
 
@@ -102,4 +101,3 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 * Write unit tests for calculation parts of spot-rescheduler
 * Sort out licenses across files
 * Add different log levels for more/less verbose logging
-* Add leader election to make HA
