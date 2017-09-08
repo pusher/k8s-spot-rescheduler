@@ -109,6 +109,11 @@ func main() {
 		glog.Fatalf("Failed to create kube client: %v", err)
 	}
 
+	run(kubeClient)
+}
+
+func run(kubeClient kube_client.Interface) {
+
 	recorder := createEventRecorder(kubeClient)
 
 	stopChannel := make(chan struct{})
