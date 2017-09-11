@@ -46,19 +46,19 @@ On this, you should configure the flags as you require.
 
 `--running-in-cluster` (default: `true`): Optional, if this controller is running in a kubernetes cluster, use the pod secrets for creating a Kubernetes client.
 
+`--namespace` (deafult: `kube-system`): Namespace in which spot-rescheduler is run.
+
  `--kube-api-content-type` (default: `application/vnd.kubernetes.protobuf`): Content type of requests sent to apiserver.
 
 `--housekeeping-interval` (default: 10s): How often rescheduler takes actions.
 
 `--node-drain-delay` (default: 10m): How long the scheduler should wait between draining nodes.
 
-`--pod-eviction-timeout` (default: 2m): How long should the rescheduler attempt to retrieve successful pod
- evictions for.
+`--pod-eviction-timeout` (default: 2m): How long should the rescheduler attempt to retrieve successful pod evictions for.
 
- `--max-graceful-termination` (default: 2m): How long should the rescheduler wait for pods to shutdown gracefully before
-  failing the node drain attempt.
+ `--max-graceful-termination` (default: 2m): How long should the rescheduler wait for pods to shutdown gracefully before failing the node drain attempt.
 
-`--listen-address` (default: `localhost:9235`): Address to listen on for serving prometheus metrics
+`--listen-address` (default: `localhost:9235`): Address to listen on for serving prometheus metrics.
 
 Once this is done you should ensure that you have Kubernetes labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` (or your own identifiers) on your on-demand and spot instances respectively and that the on-demand instances are tainted with a `PreferNoSchedule` taint.
 
