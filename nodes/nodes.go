@@ -86,7 +86,7 @@ func newNodeInfo(client kube_client.Interface, node *apiv1.Node) (*NodeInfo, err
 	if err != nil {
 		return nil, err
 	}
-	requestedCPU := calculateRequestedCPU(client, pods)
+	requestedCPU := calculateRequestedCPU(pods)
 
 	return &NodeInfo{
 		Node:         node,
@@ -97,9 +97,9 @@ func newNodeInfo(client kube_client.Interface, node *apiv1.Node) (*NodeInfo, err
 }
 
 // AddPod adds a pod to a NodeInfo and updates the relevant resource values.
-func (n *NodeInfo) AddPod(client kube_client.Interface, pod *apiv1.Pod) {
+func (n *NodeInfo) AddPod(pod *apiv1.Pod) {
 	n.Pods = append(n.Pods, pod)
-	n.RequestedCPU = calculateRequestedCPU(client, n.Pods)
+	n.RequestedCPU = calculateRequestedCPU(n.Pods)
 	n.FreeCPU = n.Node.Status.Allocatable.Cpu().MilliValue() - n.RequestedCPU
 }
 
@@ -120,7 +120,7 @@ func getPodsOnNode(client kube_client.Interface, node *apiv1.Node) ([]*apiv1.Pod
 
 // Works out requested CPU for a collection of pods and returns it in MilliValue
 // (Pod requests are stored as MilliValues hence the return type here)
-func calculateRequestedCPU(client kube_client.Interface, pods []*apiv1.Pod) int64 {
+func calculateRequestedCPU(pods []*apiv1.Pod) int64 {
 	var CPURequests int64
 	for _, pod := range pods {
 		CPURequests += getPodCPURequests(pod)

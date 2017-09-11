@@ -257,7 +257,7 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 					glog.V(2).Infof("Considering %s for removal", nodeInfo.Node.Name)
 
 					// Checks whether or not a node can be drained
-					err = canDrainNode(kubeClient, predicateChecker, spotNodeInfos, podsForDeletion)
+					err = canDrainNode(predicateChecker, spotNodeInfos, podsForDeletion)
 					if err != nil {
 						glog.V(2).Infof("Cannot drain node: %v", err)
 						continue
@@ -310,7 +310,7 @@ func createEventRecorder(client kube_client.Interface) kube_record.EventRecorder
 // scheduled on the node, and returns the node if it finds a suitable one.
 // Currently sorts nodes by most requested CPU in an attempt to fill fuller
 // nodes first (Attempting to bin pack)
-func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos []*nodes.NodeInfo, pod *apiv1.Pod) *nodes.NodeInfo {
+func findSpotNodeForPod(predicateChecker *simulator.PredicateChecker, nodeInfos []*nodes.NodeInfo, pod *apiv1.Pod) *nodes.NodeInfo {
 	for _, nodeInfo := range nodeInfos {
 		kubeNodeInfo := schedulercache.NewNodeInfo(nodeInfo.Pods...)
 		kubeNodeInfo.SetNode(nodeInfo.Node)
@@ -328,19 +328,19 @@ func findSpotNodeForPod(client kube_client.Interface, predicateChecker *simulato
 
 // Goes through a list of pods and works out new nodes to place them on.
 // Returns an error if any of the pods won't fit onto existing spot nodes.
-func canDrainNode(kubeClient kube_client.Interface, predicateChecker *simulator.PredicateChecker, nodeInfos nodes.NodeInfoArray, pods []*apiv1.Pod) error {
+func canDrainNode(predicateChecker *simulator.PredicateChecker, nodeInfos nodes.NodeInfoArray, pods []*apiv1.Pod) error {
 	// Create a copy of the nodeInfos so that we can modify the list within this
 	// call
 	nodePlan := nodeInfos.CopyNodeInfos()
 
 	for _, pod := range pods {
 		// Works out if a spot node is available for rescheduling
-		spotNodeInfo := findSpotNodeForPod(kubeClient, predicateChecker, nodePlan, pod)
+		spotNodeInfo := findSpotNodeForPod(predicateChecker, nodePlan, pod)
 		if spotNodeInfo == nil {
 			return fmt.Errorf("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
 		} else {
 			glog.V(4).Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.Node.ObjectMeta.Name)
-			spotNodeInfo.AddPod(kubeClient, pod)
+			spotNodeInfo.AddPod(pod)
 		}
 	}
 
@@ -374,4 +374,9 @@ func updateSpotNodeMetrics(spotNodeInfos nodes.NodeInfoArray, pdbs []*policyv1.P
 		metrics.UpdateNodePodsCount(nodes.SpotNodeLabel, nodeInfo.Node.Name, len(podsOnNode))
 
 	}
+}
+
+// Returns the pods Namespace/Name as a string
+func podId(pod *apiv1.Pod) string {
+	return fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
 }
