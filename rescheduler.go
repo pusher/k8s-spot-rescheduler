@@ -26,6 +26,7 @@ import (
 	"github.com/pusher/spot-rescheduler/drain"
 	"github.com/pusher/spot-rescheduler/metrics"
 	"github.com/pusher/spot-rescheduler/nodes"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
 	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
 	kube_utils "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
@@ -37,6 +38,8 @@ import (
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 	policyv1 "k8s.io/kubernetes/pkg/apis/policy/v1beta1"
 	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
+	kube_leaderelection "k8s.io/kubernetes/pkg/client/leaderelection"
+	"k8s.io/kubernetes/pkg/client/leaderelection/resourcelock"
 	kubectl_util "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
 
@@ -53,6 +56,9 @@ var (
 	inCluster = flags.Bool("running-in-cluster", true,
 		`Optional, if this controller is running in a kubernetes cluster, use the
 		 pod secrets for creating a Kubernetes client.`)
+
+	namespace = flag.String("namespace", "kube-system",
+		`Namespace in which spot-rescheduler is run`)
 
 	contentType = flags.String("kube-api-content-type", "application/vnd.kubernetes.protobuf",
 		`Content type of requests sent to apiserver.`)
@@ -110,6 +116,51 @@ func main() {
 	}
 
 	recorder := createEventRecorder(kubeClient)
+
+	leaderElection := kube_leaderelection.DefaultLeaderElectionConfiguration()
+	if *inCluster {
+		leaderElection.LeaderElect = true
+	}
+
+	if !leaderElection.LeaderElect {
+		run(kubeClient, recorder)
+	} else {
+		id, err := os.Hostname()
+		if err != nil {
+			glog.Fatalf("Unable to get hostname: %v", err)
+		}
+		kube_leaderelection.RunOrDie(kube_leaderelection.LeaderElectionConfig{
+			Lock: &resourcelock.EndpointsLock{
+				EndpointsMeta: metav1.ObjectMeta{
+					Namespace: *namespace,
+					Name:      "spot-rescheduler",
+				},
+				Client: kubeClient.CoreV1(),
+				LockConfig: resourcelock.ResourceLockConfig{
+					Identity:      id,
+					EventRecorder: recorder,
+				},
+			},
+			LeaseDuration: leaderElection.LeaseDuration.Duration,
+			RenewDeadline: leaderElection.RenewDeadline.Duration,
+			RetryPeriod:   leaderElection.RetryPeriod.Duration,
+			Callbacks: kube_leaderelection.LeaderCallbacks{
+				OnStartedLeading: func(_ <-chan struct{}) {
+					// Since we are committing a suicide after losing
+					// mastership, we can safely ignore the argument.
+					run(kubeClient, recorder)
+				},
+				OnStoppedLeading: func() {
+					glog.Fatalf("Lost leader status, terminating.")
+				},
+			},
+		})
+
+	}
+
+}
+
+func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 
 	stopChannel := make(chan struct{})
 
