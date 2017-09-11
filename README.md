@@ -60,6 +60,10 @@ On this, you should configure the flags as you require.
 
 `--listen-address` (default: `localhost:9235`): Address to listen on for serving prometheus metrics.
 
+`--on-demand-node-label` (default: `node-role.kubernetes.io/worker`) Name of label on nodes to be considered for draining.
+
+`--spot-node-label` (default: `node-role.kubernetes.io/spot-worker`) Name of label on nodes to be considered as targets for pods.
+
 Once this is done you should ensure that you have Kubernetes labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` (or your own identifiers) on your on-demand and spot instances respectively and that the on-demand instances are tainted with a `PreferNoSchedule` taint.
 
 For example you could add the following to `ExecStart` in your Kubelet's config file:
