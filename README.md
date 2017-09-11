@@ -42,8 +42,11 @@ There is a basic [deployment](https://github.com/pusher/spot-rescheduler/blob/ma
 
 On this, you should configure the flags as you require.
 
-`--running-in-cluster` (default: `true`): Optional, if this controller is running in a kubernetes cluster, use the
- pod secrets for creating a Kubernetes client.
+`-v` (default: 0): The log verbosity level the program should run in, currently numeric with values between 2 & 4, recommended to use `-v=2`
+
+`--running-in-cluster` (default: `true`): Optional, if this controller is running in a kubernetes cluster, use the pod secrets for creating a Kubernetes client.
+
+`--namespace` (deafult: `kube-system`): Namespace in which spot-rescheduler is run.
 
  `--kube-api-content-type` (default: `application/vnd.kubernetes.protobuf`): Content type of requests sent to apiserver.
 
@@ -51,15 +54,15 @@ On this, you should configure the flags as you require.
 
 `--node-drain-delay` (default: 10m): How long the scheduler should wait between draining nodes.
 
-`--pod-eviction-timeout` (default: 2m): How long should the rescheduler attempt to retrieve successful pod
- evictions for.
+`--pod-eviction-timeout` (default: 2m): How long should the rescheduler attempt to retrieve successful pod evictions for.
 
- `--max-graceful-termination` (default: 2m): How long should the rescheduler wait for pods to shutdown gracefully before
-  failing the node drain attempt.
+ `--max-graceful-termination` (default: 2m): How long should the rescheduler wait for pods to shutdown gracefully before failing the node drain attempt.
 
-`--pod-scheduled-timeout` (default: 2m): How long should rescheduler should wait for the pod to be rescheduled after evicting it from an on-demand node.
+`--listen-address` (default: `localhost:9235`): Address to listen on for serving prometheus metrics.
 
-`--listen-address` (default: `localhost:9235`): Address to listen on for serving prometheus metrics
+`--on-demand-node-label` (default: `node-role.kubernetes.io/worker`) Name of label on nodes to be considered for draining.
+
+`--spot-node-label` (default: `node-role.kubernetes.io/spot-worker`) Name of label on nodes to be considered as targets for pods.
 
 Once this is done you should ensure that you have Kubernetes labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` (or your own identifiers) on your on-demand and spot instances respectively and that the on-demand instances are tainted with a `PreferNoSchedule` taint.
 
@@ -69,7 +72,7 @@ For example you could add the following to `ExecStart` in your Kubelet's config 
 --node-labels="node-role.kubernetes.io/worker=true"
 ```
 
-## Operating Logic
+## [Operating Logic](#operating-logic)
 
 The rescheduler logic roughly follows the below:
 
@@ -100,4 +103,16 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 
 * Write unit tests for calculation parts of spot-rescheduler
 * Sort out licenses across files
-* Add different log levels for more/less verbose logging
+
+## Development
+To develop on this project, clone this repo into your `$GOPATH` and download the dependencies using [`glide`](https://github.com/Masterminds/glide).
+
+```bash
+cd $GOPATH/src/github.com # Create this directory if it doesn't exist
+git clone git@github.com:<YOUR_FORK>/spot-rescheduler <YOUR_FORK>/spot-rescheduler
+glide install -v # Installs dependencies to vendor folder.
+```
+
+The main package is within `rescheduler.go` and an overview of it's operating logic is described [above](operating-logic).
+
+If you want to run the rescheduler locally you must have a valid `kubeconfig` file in your repo root and then run the program with the flag `--running-in-cluster=false`.
