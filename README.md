@@ -58,8 +58,6 @@ On this, you should configure the flags as you require.
  `--max-graceful-termination` (default: 2m): How long should the rescheduler wait for pods to shutdown gracefully before
   failing the node drain attempt.
 
-`--pod-scheduled-timeout` (default: 2m): How long should rescheduler should wait for the pod to be rescheduled after evicting it from an on-demand node.
-
 `--listen-address` (default: `localhost:9235`): Address to listen on for serving prometheus metrics
 
 Once this is done you should ensure that you have Kubernetes labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` (or your own identifiers) on your on-demand and spot instances respectively and that the on-demand instances are tainted with a `PreferNoSchedule` taint.
