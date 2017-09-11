@@ -375,3 +375,8 @@ func updateSpotNodeMetrics(spotNodeInfos nodes.NodeInfoArray, pdbs []*policyv1.P
 
 	}
 }
+
+// Returns the pods Namespace/Name as a string
+func podId(pod *apiv1.Pod) string {
+	return fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
+}
