@@ -71,6 +71,55 @@ func TestFindSpotNodeForPod(t *testing.T) {
 
 }
 
+func TestCanDrainNode(t *testing.T) {
+	predicateChecker := simulator.NewTestPredicateChecker()
+
+	pods1 := []*apiv1.Pod{
+		createTestPod("p1n1", 100),
+		createTestPod("p2n1", 300),
+	}
+	pods2 := []*apiv1.Pod{
+		createTestPod("p1n2", 500),
+		createTestPod("p2n2", 300),
+	}
+	pods3 := []*apiv1.Pod{
+		createTestPod("p1n3", 500),
+		createTestPod("p2n3", 500),
+		createTestPod("p3n3", 300),
+	}
+
+	spotNodeInfos := []*nodes.NodeInfo{
+		createTestNodeInfo(createTestNode("node3", 2000), pods3, 1300),
+		createTestNodeInfo(createTestNode("node2", 1100), pods2, 800),
+		createTestNodeInfo(createTestNode("node1", 500), pods1, 400),
+	}
+
+	podsForDeletion1 := []*apiv1.Pod{
+		createTestPod("pod1", 500),
+		createTestPod("pod2", 300),
+		createTestPod("pod1", 100),
+		createTestPod("pod2", 100),
+		createTestPod("pod1", 100),
+	}
+	podsForDeletion2 := []*apiv1.Pod{
+		createTestPod("pod1", 500),
+		createTestPod("pod2", 400),
+		createTestPod("pod1", 100),
+		createTestPod("pod2", 100),
+		createTestPod("pod1", 100),
+	}
+
+	err1 := canDrainNode(predicateChecker, spotNodeInfos, podsForDeletion1)
+	if err1 != nil {
+		assert.Fail(t, "canDrainNode should be successful with podsForDeletion1", "%v", err1)
+	}
+
+	err2 := canDrainNode(predicateChecker, spotNodeInfos, podsForDeletion2)
+	if err2 == nil {
+		assert.Fail(t, "canDrainNode should fail with podsForDeletion2, too much requested CPU.")
+	}
+}
+
 func createTestPod(name string, cpu int64) *apiv1.Pod {
 	pod := &apiv1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
