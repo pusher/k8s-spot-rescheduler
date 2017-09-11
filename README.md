@@ -69,7 +69,7 @@ For example you could add the following to `ExecStart` in your Kubelet's config 
 --node-labels="node-role.kubernetes.io/worker=true"
 ```
 
-## Operating Logic
+## [Operating Logic](#operating-logic)
 
 The rescheduler logic roughly follows the below:
 
@@ -101,3 +101,16 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 * Write unit tests for calculation parts of spot-rescheduler
 * Sort out licenses across files
 * Add different log levels for more/less verbose logging
+
+## Development
+To develop on this project, clone this repo into your `$GOPATH` and download the dependencies using [`glide`](https://github.com/Masterminds/glide).
+
+```bash
+cd $GOPATH/src/github.com # Create this directory if it doesn't exist
+git clone git@github.com:<YOUR_FORK>/spot-rescheduler <YOUR_FORK>/spot-rescheduler
+glide install -v # Installs dependencies to vendor folder.
+```
+
+The main package is within `rescheduler.go` and an overview of it's operating logic is described [above](operating-logic).
+
+If you want to run the rescheduler locally you must have a valid `kubeconfig` file in your repo root and then run the program with the flag `--running-in-cluster=false`.
