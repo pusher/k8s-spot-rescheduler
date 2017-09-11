@@ -42,8 +42,9 @@ There is a basic [deployment](https://github.com/pusher/spot-rescheduler/blob/ma
 
 On this, you should configure the flags as you require.
 
-`--running-in-cluster` (default: `true`): Optional, if this controller is running in a kubernetes cluster, use the
- pod secrets for creating a Kubernetes client.
+`-v` (default: 0): The log verbosity level the program should run in, currently numeric with values between 2 & 4, recommended to use `-v=2`
+
+`--running-in-cluster` (default: `true`): Optional, if this controller is running in a kubernetes cluster, use the pod secrets for creating a Kubernetes client.
 
  `--kube-api-content-type` (default: `application/vnd.kubernetes.protobuf`): Content type of requests sent to apiserver.
 
