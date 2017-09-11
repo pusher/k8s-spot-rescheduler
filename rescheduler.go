@@ -183,7 +183,7 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 			{
 				// Don't do anything if we are waiting for the drain delay timer
 				if time.Until(nextDrainTime) > 0 {
-					glog.Infof("Waiting %s for drain delay timer.", time.Until(nextDrainTime))
+					glog.V(2).Infof("Waiting %s for drain delay timer.", time.Until(nextDrainTime))
 					continue
 				}
 
@@ -193,11 +193,11 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 					glog.Errorf("Failed to get unschedulable pods: %v", err)
 				}
 				if len(unschedulablePods) > 0 {
-					glog.Info("Waiting for unschedulable pods to be scheduled.")
+					glog.V(2).Info("Waiting for unschedulable pods to be scheduled.")
 					continue
 				}
 
-				glog.Info("Starting node processing.")
+				glog.V(3).Info("Starting node processing.")
 
 				// Get all nodes in the cluster
 				allNodes, err := nodeLister.List()
@@ -231,7 +231,7 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 				updateSpotNodeMetrics(spotNodeInfos, allPDBs)
 
 				if len(onDemandNodeInfos) < 1 {
-					glog.Info("No nodes to process.")
+					glog.V(2).Info("No nodes to process.")
 				}
 
 				// Go through each onDemand node in turn
@@ -250,21 +250,21 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 					metrics.UpdateNodePodsCount(nodes.OnDemandNodeLabel, nodeInfo.Node.Name, len(podsForDeletion))
 					if len(podsForDeletion) < 1 {
 						// Nothing to do here
-						glog.Infof("No pods on %s, skipping.", nodeInfo.Node.Name)
+						glog.V(2).Infof("No pods on %s, skipping.", nodeInfo.Node.Name)
 						continue
 					}
 
-					glog.Infof("Considering %s for removal", nodeInfo.Node.Name)
+					glog.V(2).Infof("Considering %s for removal", nodeInfo.Node.Name)
 
 					// Checks whether or not a node can be drained
 					err = canDrainNode(kubeClient, predicateChecker, spotNodeInfos, podsForDeletion)
 					if err != nil {
-						glog.Errorf("Cannot drain node: %v", err)
+						glog.V(2).Infof("Cannot drain node: %v", err)
 						continue
 					}
 
 					// If building plan was successful, can drain node.
-					glog.Infof("All pods on %v can be moved. Will drain node.", nodeInfo.Node.Name)
+					glog.V(2).Infof("All pods on %v can be moved. Will drain node.", nodeInfo.Node.Name)
 					// Drain the node - places eviction on each pod moving them in turn.
 					err = drainNode(kubeClient, recorder, nodeInfo.Node, podsForDeletion, int(maxGracefulTermination.Seconds()), *podEvictionTimeout)
 					if err != nil {
@@ -274,7 +274,7 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 					break
 				}
 
-				glog.Info("Finished processing nodes.")
+				glog.V(3).Info("Finished processing nodes.")
 			}
 		}
 	}
@@ -339,7 +339,7 @@ func canDrainNode(kubeClient kube_client.Interface, predicateChecker *simulator.
 		if spotNodeInfo == nil {
 			return fmt.Errorf("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
 		} else {
-			glog.Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.Node.ObjectMeta.Name)
+			glog.V(4).Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.Node.ObjectMeta.Name)
 			spotNodeInfo.AddPod(kubeClient, pod)
 		}
 	}

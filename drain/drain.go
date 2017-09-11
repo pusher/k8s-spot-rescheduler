@@ -111,7 +111,7 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 			}
 		}
 		if allGone {
-			glog.Infof("All pods removed from %s", node.Name)
+			glog.V(4).Infof("All pods removed from %s", node.Name)
 			// Let the defered function know there is no need for cleanup
 			drainSuccessful = true
 			recorder.Eventf(node, apiv1.EventTypeNormal, "Rescheduler", "marked the node as drained/schedulable")
