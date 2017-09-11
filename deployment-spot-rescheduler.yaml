@@ -7,7 +7,7 @@ metadata:
   labels:
     app: spot-rescheduler
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: spot-rescheduler
@@ -28,4 +28,13 @@ spec:
               memory: 50Mi
           command:
             - /rescheduler
+            - -v=2
             - --running-in-cluster=true
+            - --namespace=kube-system
+            - --housekeeping-interval=10s
+            - --node-drain-delay=10m
+            - --pod-eviction-timeout=2m
+            - --max-graceful-termination=2m
+            - --listen-address=0.0.0.0:9235
+            - --on-demand-node-label=node-role.kubernetes.io/worker
+            - --spot-node-label=node-role.kubernetes.io/spot-worker
