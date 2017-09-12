@@ -92,7 +92,7 @@ func newNodeInfo(client kube_client.Interface, node *apiv1.Node) (*NodeInfo, err
 		Node:         node,
 		Pods:         pods,
 		RequestedCPU: requestedCPU,
-		FreeCPU:      node.Status.Capacity.Cpu().MilliValue() - requestedCPU,
+		FreeCPU:      node.Status.Allocatable.Cpu().MilliValue() - requestedCPU,
 	}, nil
 }
 
