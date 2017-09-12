@@ -71,7 +71,7 @@ func init() {
 }
 
 // UpdateNodesMap updates the metrics calculated by the nodes map
-func UpdateNodesMap(nm nodes.NodesMap) {
+func UpdateNodesMap(nm nodes.Map) {
 	if nm == nil {
 		return
 	}

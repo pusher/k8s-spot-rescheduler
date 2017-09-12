@@ -20,8 +20,6 @@ var (
 	Spot NodeType = 1
 )
 
-const ()
-
 // NodeInfo struct containing node and it's pods as well information
 // resources on the node.
 type NodeInfo struct {
@@ -37,12 +35,12 @@ type NodeType int
 // NodeInfoArray array of NodeInfo pointers.
 type NodeInfoArray []*NodeInfo
 
-// NodesMap map of NodeInfoArray.
-type NodesMap map[NodeType]NodeInfoArray
+// Map map of NodeInfoArray.
+type Map map[NodeType]NodeInfoArray
 
 // NewNodeMap creates a new NodesMap from a list of Nodes.
-func NewNodeMap(client kube_client.Interface, nodes []*apiv1.Node) (NodesMap, error) {
-	nodeMap := NodesMap{
+func NewNodeMap(client kube_client.Interface, nodes []*apiv1.Node) (Map, error) {
+	nodeMap := Map{
 		OnDemand: make([]*NodeInfo, 0),
 		Spot:     make([]*NodeInfo, 0),
 	}
