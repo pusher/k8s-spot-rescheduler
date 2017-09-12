@@ -1,10 +1,9 @@
-box: busybox
+box: golang:1.8.3-alpine3.6
 
 # Kubernetes takes a long time to download
 no-response-timeout: 10
 
 build:
-  box: golang:1.8.3-alpine3.6
   steps:
   - script:
       name: Install Go and Glide dependencies
@@ -23,11 +22,10 @@ build:
       name: go build
       code: GOPATH=/go GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o rescheduler
   - script:
-      name: copy binary
-      code: cp rescheduler "$WERCKER_OUTPUT_DIR"
+      name: Copy to output directory
+      code: cp -R ./* "$WERCKER_OUTPUT_DIR"
 
 test:
-  box: golang:1.8.3-alpine3.6
   steps:
   - script:
       name: Install Go and Glide dependencies
@@ -40,13 +38,42 @@ test:
   - wercker/setup-go-workspace:
       package-dir: github.com/pusher/spot-rescheduler
   - script:
-      name: Fetch dependencies
-      code: glide --home $WERCKER_CACHE_DIR/.glide install -v
-  - script:
       name: go test
       code: go test $(glide novendor)
 
+lint:
+  steps:
+  - script:
+      name: Install Go and Glide dependencies
+      code: |
+        apk add --update bash openssh git mercurial
+  - script:
+      name: Install Glide
+      code: |
+        go get github.com/Masterminds/glide
+  - wercker/setup-go-workspace:
+      package-dir: github.com/pusher/spot-rescheduler
+  - script:
+      name: Install gometalinter
+      code: |
+        go get -u github.com/alecthomas/gometalinter
+        gometalinter --install
+  - script:
+      name: Run gometalinter
+      code: |
+       gometalinter --vendor --disable-all \
+       --enable=vet \
+       --enable=vetshadow \
+       --enable=golint \
+       --enable=ineffassign \
+       --enable=goconst \
+       --enable=deadcode \
+       --enable=gofmt \
+       --enable=goimports \
+       --tests $(glide novendor)
+
 push-to-ecr:
+  box: busybox
   steps:
   - script:
       name: Copy binary
@@ -61,6 +88,7 @@ push-to-ecr:
       entrypoint: /rescheduler
 
 deploy-to-kubernetes:
+  box: busybox
   steps:
   - kubectl:
       server: $KUBERNETES_MASTER
