@@ -101,7 +101,6 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 
 ## [TODO](#todo)
 
-* Write unit tests for calculation parts of spot-rescheduler
 * Sort out licenses across files
 
 ## Development
@@ -116,3 +115,6 @@ glide install -v # Installs dependencies to vendor folder.
 The main package is within `rescheduler.go` and an overview of it's operating logic is described [above](operating-logic).
 
 If you want to run the rescheduler locally you must have a valid `kubeconfig` file in your repo root and then run the program with the flag `--running-in-cluster=false`.
+
+### Tests
+To run tests, run `go test $(glide novendor)`
