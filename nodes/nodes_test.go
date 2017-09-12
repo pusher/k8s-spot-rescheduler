@@ -178,6 +178,50 @@ func TestGetPodCPURequests(t *testing.T) {
 	assert.Equal(t, int64(200), pod2Request)
 }
 
+func TestCopyNodeInfos(t *testing.T) {
+	pods1 := []*apiv1.Pod{
+		createTestPod("p1n1", 100),
+		createTestPod("p2n1", 300),
+	}
+	pods2 := []*apiv1.Pod{
+		createTestPod("p1n2", 500),
+		createTestPod("p2n2", 300),
+	}
+	pods3 := []*apiv1.Pod{
+		createTestPod("p1n3", 500),
+		createTestPod("p2n3", 500),
+		createTestPod("p3n3", 300),
+	}
+
+	pod1 := createTestPod("pod1", 200)
+	pod2 := createTestPod("pod2", 200)
+	pod3 := createTestPod("pod3", 200)
+
+	nodeInfos := NodeInfoArray{
+		createTestNodeInfo(createTestNode("node1", 2000), pods1, 400),
+		createTestNodeInfo(createTestNode("node2", 2000), pods2, 800),
+		createTestNodeInfo(createTestNode("node3", 2000), pods3, 1300),
+	}
+
+	// Create a copy of the array
+	nodeInfosCopy := nodeInfos.CopyNodeInfos()
+
+	// Modify the array
+	nodeInfosCopy[0].AddPod(pod1)
+	nodeInfosCopy[1].AddPod(pod2)
+	nodeInfosCopy[2].AddPod(pod3)
+
+	// Check the changes applied
+	assert.Equal(t, len(pods1)+1, len(nodeInfosCopy[0].Pods))
+	assert.Equal(t, len(pods2)+1, len(nodeInfosCopy[1].Pods))
+	assert.Equal(t, len(pods3)+1, len(nodeInfosCopy[2].Pods))
+
+	// Check the original has not changed
+	assert.Equal(t, len(pods1), len(nodeInfos[0].Pods))
+	assert.Equal(t, len(pods2), len(nodeInfos[1].Pods))
+	assert.Equal(t, len(pods3), len(nodeInfos[2].Pods))
+}
+
 func createTestPod(name string, cpu int64) *apiv1.Pod {
 	pod := &apiv1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
