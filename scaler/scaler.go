@@ -1,4 +1,4 @@
-package drain
+package scaler
 
 import (
 	"fmt"

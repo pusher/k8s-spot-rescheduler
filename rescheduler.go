@@ -23,9 +23,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/pusher/spot-rescheduler/drain"
 	"github.com/pusher/spot-rescheduler/metrics"
 	"github.com/pusher/spot-rescheduler/nodes"
+	"github.com/pusher/spot-rescheduler/scaler"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
 	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
@@ -350,7 +350,7 @@ func canDrainNode(predicateChecker *simulator.PredicateChecker, nodeInfos nodes.
 // Performs a drain on given node and updates the nextDrainTime variable.
 // Returns an error if the drain fails.
 func drainNode(kubeClient kube_client.Interface, recorder kube_record.EventRecorder, node *apiv1.Node, pods []*apiv1.Pod, maxGracefulTermination int, podEvictionTimeout time.Duration) error {
-	err := drain.DrainNode(node, pods, kubeClient, recorder, maxGracefulTermination, podEvictionTimeout, drain.EvictionRetryTime)
+	err := scaler.DrainNode(node, pods, kubeClient, recorder, maxGracefulTermination, podEvictionTimeout, scaler.EvictionRetryTime)
 	if err != nil {
 		metrics.UpdateNodeDrainCount("Failure", node.Name)
 		return err
