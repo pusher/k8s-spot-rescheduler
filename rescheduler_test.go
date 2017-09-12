@@ -19,96 +19,104 @@ package main
 import (
 	"fmt"
 	"testing"
-	"time"
 
-	simulator "github.com/pusher/spot-rescheduler/predicates"
+	"github.com/pusher/spot-rescheduler/nodes"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	core "k8s.io/client-go/testing"
+	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
 	apiv1 "k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset/fake"
 )
 
-func TestWaitForScheduled(t *testing.T) {
-	pod := createTestPod("test-pod", 150)
-	counter := 0
-	fakeClient := &fake.Clientset{}
-	fakeClient.Fake.AddReactor("get", "pods", func(action core.Action) (bool, runtime.Object, error) {
-		counter++
-		if counter > 2 {
-			pod.Spec.NodeName = "node1"
-		}
-		return true, pod, nil
-	})
-
-	podsBeingProcessed := NewPodSet()
-	podsBeingProcessed.Add(pod)
-
-	assert.True(t, podsBeingProcessed.HasId("kube-system_test-pod"))
-	waitForScheduled(fakeClient, podsBeingProcessed, pod)
-	assert.False(t, podsBeingProcessed.HasId("kube-system_test-pod"))
-}
-
-func TestFindNodeForPod(t *testing.T) {
+func TestFindSpotNodeForPod(t *testing.T) {
 	predicateChecker := simulator.NewTestPredicateChecker()
-	nodes := []*apiv1.Node{
-		createTestNode("node1", 500),
-		createTestNode("node2", 1000),
-		createTestNode("node3", 2000),
+
+	pods1 := []*apiv1.Pod{
+		createTestPod("p1n1", 100),
+		createTestPod("p2n1", 300),
 	}
-	pods1 := []apiv1.Pod{
-		*createTestPod("p1n1", 100),
-		*createTestPod("p2n1", 300),
+	pods2 := []*apiv1.Pod{
+		createTestPod("p1n2", 500),
+		createTestPod("p2n2", 300),
 	}
-	pods2 := []apiv1.Pod{
-		*createTestPod("p1n2", 500),
-		*createTestPod("p2n2", 300),
-	}
-	pods3 := []apiv1.Pod{
-		*createTestPod("p1n3", 500),
-		*createTestPod("p2n3", 500),
-		*createTestPod("p3n3", 300),
+	pods3 := []*apiv1.Pod{
+		createTestPod("p1n3", 500),
+		createTestPod("p2n3", 500),
+		createTestPod("p3n3", 300),
 	}
 
-	fakeClient := &fake.Clientset{}
-	fakeClient.Fake.AddReactor("list", "pods", func(action core.Action) (bool, runtime.Object, error) {
-		listAction, ok := action.(core.ListAction)
-		assert.True(t, ok)
-		restrictions := listAction.GetListRestrictions().Fields.String()
-
-		podList := &apiv1.PodList{}
-		switch restrictions {
-		case "spec.nodeName=node1":
-			podList.Items = pods1
-		case "spec.nodeName=node2":
-			podList.Items = pods2
-		case "spec.nodeName=node3":
-			podList.Items = pods3
-		default:
-			t.Fatalf("unexpected list restrictions: %v", restrictions)
-		}
-		return true, podList, nil
-	})
+	nodeInfos := []*nodes.NodeInfo{
+		createTestNodeInfo(createTestNode("node1", 500), pods1, 400),
+		createTestNodeInfo(createTestNode("node2", 1000), pods2, 800),
+		createTestNodeInfo(createTestNode("node3", 2000), pods3, 1300),
+	}
 
 	pod1 := createTestPod("pod1", 100)
-	pod2 := createTestPod("pod2", 500)
-	pod3 := createTestPod("pod3", 800)
+	pod2 := createTestPod("pod2", 200)
+	pod3 := createTestPod("pod3", 700)
 	pod4 := createTestPod("pod4", 2200)
 
-	node := findNodeForPod(fakeClient, predicateChecker, nodes, pod1)
-	assert.Equal(t, "node1", node.Name)
+	node := findSpotNodeForPod(predicateChecker, nodeInfos, pod1)
+	assert.Equal(t, "node1", node.Node.Name)
 
-	node = findNodeForPod(fakeClient, predicateChecker, nodes, pod2)
-	assert.Equal(t, "node2", node.Name)
+	node = findSpotNodeForPod(predicateChecker, nodeInfos, pod2)
+	assert.Equal(t, "node2", node.Node.Name)
 
-	node = findNodeForPod(fakeClient, predicateChecker, nodes, pod3)
-	assert.Equal(t, "node3", node.Name)
+	node = findSpotNodeForPod(predicateChecker, nodeInfos, pod3)
+	assert.Equal(t, "node3", node.Node.Name)
 
-	node = findNodeForPod(fakeClient, predicateChecker, nodes, pod4)
+	node = findSpotNodeForPod(predicateChecker, nodeInfos, pod4)
 	assert.Nil(t, node)
 
+}
+
+func TestCanDrainNode(t *testing.T) {
+	predicateChecker := simulator.NewTestPredicateChecker()
+
+	pods1 := []*apiv1.Pod{
+		createTestPod("p1n1", 100),
+		createTestPod("p2n1", 300),
+	}
+	pods2 := []*apiv1.Pod{
+		createTestPod("p1n2", 500),
+		createTestPod("p2n2", 300),
+	}
+	pods3 := []*apiv1.Pod{
+		createTestPod("p1n3", 500),
+		createTestPod("p2n3", 500),
+		createTestPod("p3n3", 300),
+	}
+
+	spotNodeInfos := []*nodes.NodeInfo{
+		createTestNodeInfo(createTestNode("node3", 2000), pods3, 1300),
+		createTestNodeInfo(createTestNode("node2", 1100), pods2, 800),
+		createTestNodeInfo(createTestNode("node1", 500), pods1, 400),
+	}
+
+	podsForDeletion1 := []*apiv1.Pod{
+		createTestPod("pod1", 500),
+		createTestPod("pod2", 300),
+		createTestPod("pod1", 100),
+		createTestPod("pod2", 100),
+		createTestPod("pod1", 100),
+	}
+	podsForDeletion2 := []*apiv1.Pod{
+		createTestPod("pod1", 500),
+		createTestPod("pod2", 400),
+		createTestPod("pod1", 100),
+		createTestPod("pod2", 100),
+		createTestPod("pod1", 100),
+	}
+
+	err1 := canDrainNode(predicateChecker, spotNodeInfos, podsForDeletion1)
+	if err1 != nil {
+		assert.Fail(t, "canDrainNode should be successful with podsForDeletion1", "%v", err1)
+	}
+
+	err2 := canDrainNode(predicateChecker, spotNodeInfos, podsForDeletion2)
+	if err2 == nil {
+		assert.Fail(t, "canDrainNode should fail with podsForDeletion2, too much requested CPU.")
+	}
 }
 
 func createTestPod(name string, cpu int64) *apiv1.Pod {
@@ -156,11 +164,12 @@ func createTestNode(name string, cpu int64) *apiv1.Node {
 	return node
 }
 
-func getStringFromChan(c chan string) string {
-	select {
-	case val := <-c:
-		return val
-	case <-time.After(time.Second):
-		return "Nothing returned"
+func createTestNodeInfo(node *apiv1.Node, pods []*apiv1.Pod, requests int64) *nodes.NodeInfo {
+	nodeInfo := &nodes.NodeInfo{
+		Node:         node,
+		Pods:         pods,
+		RequestedCPU: requests,
+		FreeCPU:      node.Status.Capacity.Cpu().MilliValue() - requests,
 	}
+	return nodeInfo
 }

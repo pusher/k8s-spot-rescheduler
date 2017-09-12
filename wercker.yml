@@ -26,6 +26,26 @@ build:
       name: copy binary
       code: cp rescheduler "$WERCKER_OUTPUT_DIR"
 
+test:
+  box: golang:1.8.3-alpine3.6
+  steps:
+  - script:
+      name: Install Go and Glide dependencies
+      code: |
+        apk add --update bash openssh git mercurial
+  - script:
+      name: Install Glide
+      code: |
+        go get github.com/Masterminds/glide
+  - wercker/setup-go-workspace:
+      package-dir: github.com/pusher/spot-rescheduler
+  - script:
+      name: Fetch dependencies
+      code: glide --home $WERCKER_CACHE_DIR/.glide install -v
+  - script:
+      name: go test
+      code: go test $(glide novendor)
+
 push-to-ecr:
   steps:
   - script:
