@@ -19,7 +19,6 @@ package main
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/pusher/spot-rescheduler/nodes"
 	"github.com/stretchr/testify/assert"
@@ -173,13 +172,4 @@ func createTestNodeInfo(node *apiv1.Node, pods []*apiv1.Pod, requests int64) *no
 		FreeCPU:      node.Status.Capacity.Cpu().MilliValue() - requests,
 	}
 	return nodeInfo
-}
-
-func getStringFromChan(c chan string) string {
-	select {
-	case val := <-c:
-		return val
-	case <-time.After(time.Second):
-		return "Nothing returned"
-	}
 }
