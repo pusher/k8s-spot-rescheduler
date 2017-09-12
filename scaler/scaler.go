@@ -1,4 +1,4 @@
-package drain
+package scaler
 
 import (
 	"fmt"
@@ -95,7 +95,7 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 	}
 
 	// Evictions created successfully, wait maxGratefulTerminationSec to see if nodes really disappeared
-	allGone := true
+	var allGone bool
 	for start := time.Now(); time.Now().Sub(start) < time.Duration(maxGratefulTerminationSec)*time.Second; time.Sleep(5 * time.Second) {
 		allGone = true
 		for _, pod := range pods {
