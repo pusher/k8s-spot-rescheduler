@@ -337,11 +337,10 @@ func canDrainNode(predicateChecker *simulator.PredicateChecker, nodeInfos nodes.
 		// Works out if a spot node is available for rescheduling
 		spotNodeInfo := findSpotNodeForPod(predicateChecker, nodePlan, pod)
 		if spotNodeInfo == nil {
-			return fmt.Errorf("Pod %s can't be rescheduled on any existing spot node.", podId(pod))
-		} else {
-			glog.V(4).Infof("Pod %s can be rescheduled on %v, adding to plan.", podId(pod), spotNodeInfo.Node.ObjectMeta.Name)
-			spotNodeInfo.AddPod(pod)
+			return fmt.Errorf("pod %s can't be rescheduled on any existing spot node", podID(pod))
 		}
+		glog.V(4).Infof("Pod %s can be rescheduled on %v, adding to plan.", podID(pod), spotNodeInfo.Node.ObjectMeta.Name)
+		spotNodeInfo.AddPod(pod)
 	}
 
 	return nil
@@ -377,6 +376,6 @@ func updateSpotNodeMetrics(spotNodeInfos nodes.NodeInfoArray, pdbs []*policyv1.P
 }
 
 // Returns the pods Namespace/Name as a string
-func podId(pod *apiv1.Pod) string {
+func podID(pod *apiv1.Pod) string {
 	return fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
 }
