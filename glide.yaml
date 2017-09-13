@@ -191,12 +191,12 @@ import:
 - package: gopkg.in/inf.v0
 - package: gopkg.in/yaml.v2
 - package: k8s.io/autoscaler
-  version: 1bedee5707d1c892b19f1f83d83aeb27766dc0f6
+  version: b8c1fc2b01a6e5d69bef5d2d47094139d8bc4917
   subpackages:
   - cluster-autoscaler/utils/kubernetes
   - cluster-autoscaler/utils/drain
 - package: k8s.io/apiserver
-  version: 555a3aa73406bddc9cadb49480dd025f09b506cb
+  version: c63a1c33c2cb36e0f1c2e0aebf5053ae9310951c
   subpackages:
   - pkg/authentication/authenticator
   - pkg/authentication/serviceaccount
@@ -207,7 +207,7 @@ import:
   - pkg/util/flag
   - pkg/util/trace
 - package: k8s.io/client-go
-  version: d184230daaff3de47e6e4cbc32f0bcc02efa19fc
+  version: f772360c2a77160a7376393b6a21d82757c6e29b
   subpackages:
   - discovery
   - discovery/fake
@@ -294,8 +294,9 @@ import:
   - util/integer
   - util/jsonpath
   - util/workqueue
+  - tools/leaderelection/resourcelock
 - package: k8s.io/kubernetes
-  version: 695d4385085beb1112f61b7ec7397596b6e82e8e
+  version: 2faf7ff2bce9aa7a63b8b1282005fbc83fa50fce
   subpackages:
   - federation/apis/federation
   - federation/apis/federation/install
@@ -490,7 +491,7 @@ import:
   - plugin/pkg/scheduler/schedulercache
   - plugin/pkg/scheduler/util
 - package: k8s.io/apimachinery
-  version: 20734061d7c867594c82cbcef366b779e1670ce8
+  version: 7a6d68902f4484527a712cd14c689a192eaf8fc1
   subpackages:
   - pkg/api/equality
   - pkg/api/errors
@@ -541,6 +542,10 @@ import:
   - third_party/forked/golang/json
   - third_party/forked/golang/reflect
 - package: k8s.io/api
-  version: 80ddbea07b9ff072efbc5db30b557de5a9ceaab4
+  version: ae3d486cfc76e952d8f6d85cd145bdab4245f740
   subpackages:
   - core/v1
+- package: k8s.io/metrics
+  version: a976d89cd13da89ac5c065d36660cc05342f6951
+  subpackages:
+  - pkg/apis/metrics

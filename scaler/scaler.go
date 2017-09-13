@@ -6,13 +6,13 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/pusher/spot-rescheduler/metrics"
+	apiv1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/deletetaint"
+	kube_client "k8s.io/client-go/kubernetes"
 	kube_record "k8s.io/client-go/tools/record"
-	apiv1 "k8s.io/kubernetes/pkg/api/v1"
-	policyv1 "k8s.io/kubernetes/pkg/apis/policy/v1beta1"
-	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 )
 
 const (
