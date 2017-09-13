@@ -367,7 +367,7 @@ func updateSpotNodeMetrics(spotNodeInfos nodes.NodeInfoArray, pdbs []*policyv1.P
 		// Get a list of pods that are on the node (Only the types considered by the rescheduler)
 		podsOnNode, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, pdbs, false, false, false, false, nil, 0, time.Now())
 		if err != nil {
-			glog.Errorf("Failed to get pods on spot node: %v", err)
+			glog.Errorf("Failed to update metrics on spot node %s: %v", nodeInfo.Node.Name, err)
 			continue
 		}
 		metrics.UpdateNodePodsCount(nodes.SpotNodeLabel, nodeInfo.Node.Name, len(podsOnNode))
