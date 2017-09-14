@@ -26,20 +26,20 @@ import (
 	"github.com/pusher/spot-rescheduler/metrics"
 	"github.com/pusher/spot-rescheduler/nodes"
 	"github.com/pusher/spot-rescheduler/scaler"
+	apiv1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
 	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
 	kube_utils "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
+	kube_client "k8s.io/client-go/kubernetes"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
-	clientv1 "k8s.io/client-go/pkg/api/v1"
 	kube_restclient "k8s.io/client-go/rest"
+	kube_leaderelection "k8s.io/client-go/tools/leaderelection"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	kube_record "k8s.io/client-go/tools/record"
 	"k8s.io/kubernetes/pkg/api"
-	apiv1 "k8s.io/kubernetes/pkg/api/v1"
-	policyv1 "k8s.io/kubernetes/pkg/apis/policy/v1beta1"
-	kube_client "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
-	kube_leaderelection "k8s.io/kubernetes/pkg/client/leaderelection"
-	"k8s.io/kubernetes/pkg/client/leaderelection/resourcelock"
+	"k8s.io/kubernetes/pkg/client/leaderelectionconfig"
 	kubectl_util "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
 
@@ -117,7 +117,7 @@ func main() {
 
 	recorder := createEventRecorder(kubeClient)
 
-	leaderElection := kube_leaderelection.DefaultLeaderElectionConfiguration()
+	leaderElection := leaderelectionconfig.DefaultLeaderElectionConfiguration()
 	if *inCluster {
 		leaderElection.LeaderElect = true
 	}
@@ -303,7 +303,7 @@ func createEventRecorder(client kube_client.Interface) kube_record.EventRecorder
 	eventBroadcaster := kube_record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
 	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: v1core.New(client.CoreV1().RESTClient()).Events("")})
-	return eventBroadcaster.NewRecorder(api.Scheme, clientv1.EventSource{Component: "rescheduler"})
+	return eventBroadcaster.NewRecorder(api.Scheme, apiv1.EventSource{Component: "rescheduler"})
 }
 
 // Determines if any of the nodes meet the predicates that allow the Pod to be

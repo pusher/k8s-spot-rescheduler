@@ -22,10 +22,10 @@ import (
 
 	"github.com/pusher/spot-rescheduler/nodes"
 	"github.com/stretchr/testify/assert"
+	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
-	apiv1 "k8s.io/kubernetes/pkg/api/v1"
 )
 
 func TestFindSpotNodeForPod(t *testing.T) {
