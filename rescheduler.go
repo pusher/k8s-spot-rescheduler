@@ -183,7 +183,7 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 			{
 				// Don't do anything if we are waiting for the drain delay timer
 				if time.Until(nextDrainTime) > 0 {
-					glog.V(2).Infof("Waiting %s for drain delay timer.", time.Until(nextDrainTime))
+					glog.V(2).Infof("Waiting %s for drain delay timer.", time.Until(nextDrainTime).Round(time.Second))
 					continue
 				}
 
