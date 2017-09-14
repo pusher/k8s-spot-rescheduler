@@ -100,10 +100,6 @@ This process is repeated every `housekeeping-interval` seconds.
 
 The effect of this algorithm should be, that we take the emptiest nodes first and empty those before we empty a node which is busier, thus resulting in the highest number of 'empty' nodes that can be removed from the cluster.
 
-## [TODO](#todo)
-
-* Sort out licenses across files
-
 ## Contributing
 To develop on this project, clone this repo into your `$GOPATH` and download the dependencies using [`glide`](https://github.com/Masterminds/glide).
 
