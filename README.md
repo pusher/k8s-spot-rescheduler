@@ -4,19 +4,19 @@
 
 Spot recheduler is a tool that tries to reduce load on a set of Kubernetes nodes. It was designed with the purpose of moving Pods scheduled on AWS on-demand instances to AWS spot instances to allow the on-demand instances to be safely scaled down (By the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)).
 
-Our on-demand instances are tainted with the Kubernetes `PreferNoSchedule` taint. This tells the scheduler, if there is space on another node, use that first. But, Kubernetes does not have a way of rescheduling these Pods once they are scheduled on the non-preferred node, which is where the spot-rescheduler comes in.
+When on-demand instances are tainted with the Kubernetes `PreferNoSchedule` taint, this tells the scheduler, if there is space on another node, use that first. But, Kubernetes does not have a way of rescheduling these Pods once they are scheduled on the non-preferred node, thus leaving you with lots of half filled nodes. When the spot-rescheduler detects unrequested space on spot instances, it moves pods off of on-demand instances and back onto the preferred spot instances, emptying the on-demand instance.
 
 In reality the rescheduler can be used to remove load from any group of nodes onto a different group of nodes. They just need to be labelled appropriately.
 
 For example, it could also be used to allow controller nodes to take up slack while new nodes are being scaled up, and then rescheduling those pods when the new capacity becomes available, thus reducing the load on the controllers once again.
 
-This project was inspired by the [Critical Pod Rescheduler](https://github.com/kubernetes/contrib/tree/master/rescheduler) and takes large portions of code from both this repo and the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)).
+This project was inspired by the [Critical Pod Rescheduler](https://github.com/kubernetes/contrib/tree/master/rescheduler) and takes portions of code from both this repo and the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)).
 
 ## Scope
 ### Does
 * Look for Pods on on-demand instances
 * Look for space for Pods on spot instances
-* Checks the following [predicates](https://github.com/kubernetes/kubernetes/blob/v1.8.0-alpha.3/plugin/pkg/scheduler/algorithm/predicates/predicates.go) when looking for space:
+* Checks the following [predicates](https://github.com/kubernetes/kubernetes/blob/v1.8.0-alpha.3/plugin/pkg/scheduler/algorithm/predicates/predicates.go) when determining whether a pod can be moved:
   * CheckNodeMemoryPressure
   * CheckNodeDiskPressure
   * GeneralPredicates
@@ -28,8 +28,9 @@ This project was inspired by the [Critical Pod Rescheduler](https://github.com/k
   * MaxEBSVolumeCount
   * NoVolumeZoneConflict
   * ready
-* Builds a plan to move all pods on the an on-demand node to spot nodes
-* Empties a node of pods if there is enough space on spot nodes for all of it's pods
+* Checks whether there is enough capacity to move all pods on the on-demand node to spot nodes
+* Evicts all pods on the node if the previous check passes
+* Leaves the node in a schedulable state - in case it's capacity is required again
 
 
 ### Doesn't
@@ -66,7 +67,7 @@ On this, you should configure the flags as you require.
 
 Once this is done you should ensure that you have Kubernetes labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` (or your own identifiers) on your on-demand and spot instances respectively and that the on-demand instances are tainted with a `PreferNoSchedule` taint.
 
-For example you could add the following to `ExecStart` in your Kubelet's config file:
+For example you could add the following flags to your Kubelet:
 ```
 --register-with-taints="node-role.kubernetes.io/worker=true:PreferNoSchedule"
 --node-labels="node-role.kubernetes.io/worker=true"
@@ -103,7 +104,7 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 
 * Sort out licenses across files
 
-## Development
+## Contributing
 To develop on this project, clone this repo into your `$GOPATH` and download the dependencies using [`glide`](https://github.com/Masterminds/glide).
 
 ```bash
