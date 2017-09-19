@@ -18,11 +18,17 @@ In reality the rescheduler can be used to remove load from any group of nodes on
 
 For example, it could also be used to allow controller nodes to take up slack while new nodes are being scaled up, and then rescheduling those pods when the new capacity becomes available, thus reducing the load on the controllers once again.
 
-This project was inspired by the [Critical Pod Rescheduler](https://github.com/kubernetes/contrib/tree/master/rescheduler) and takes portions of code from both this repo and the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)).
+This project was inspired by the [Critical Pod Rescheduler](https://github.com/kubernetes/contrib/tree/master/rescheduler) and takes portions of code from both this repo and the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler).
 
 ## Motivation
 
-When on-demand instances are tainted with the Kubernetes `PreferNoSchedule` taint, this tells the scheduler, if there is space on another node, use that first. But, Kubernetes does not have a way of rescheduling these Pods once they are scheduled on the non-preferred node, thus leaving you with lots of half filled nodes. When the spot-rescheduler detects unrequested space on spot instances, it moves pods off of on-demand instances and back onto the preferred spot instances, emptying the on-demand instance.
+AWS spot instances are a great way to reduce the cost of your infrastructure running costs. They do however come with a significant drawback; at any point, the spot price for the instances you are using could rise above your bid and your instances will be terminated. To solve this problem, you can use an AutoScaling group backed by on-demand instances and managed by the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) to take up the slack when spot instances are removed from your cluster.
+
+The problem however, comes when the spot price drops and you are given new spot instances back into your cluster. At this point you are left with empty spot instances and full, expensive on-demand instances.
+
+By tainting the on-demand instances with the Kubernetes `PreferNoSchedule` taint, we can ensure that, if at any point the scheduler needs to choose between spot and on-demand instances, it will choose the preferred spot instances to schedule the new Pods onto.
+
+However, the scheduler won't reschedule Pods that are already running on on-demand instances, blocking them from being scaled down. At this point, the Spot-Rescheduler is required to start the process of moving Pods from the on-demand instances back onto the spot instances.
 
 ## Usage
 
@@ -47,6 +53,20 @@ glide install -v # Installs dependencies to vendor folder.
 
 Then build the code using `go build` which will produce the built binary in a file `spot-rescheduler`.
 
+### Requirements
+
+For the Spot-Rescheduler to process nodes as expected; you will need identifying labels which can be passed to the program to allow it to distinguish which nodes it should consider as on-demand and which it should consider as spot instances.
+
+For instance you could add labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` to your on-demand and spot instances respectively.
+
+You should also add the `PreferNoSchedule` taint to your on-demand instances to ensure that the scheduler prefers spot instances when making it's scheduling decisions.
+
+For example you could add the following flags to your Kubelet:
+```
+--register-with-taints="node-role.kubernetes.io/worker=true:PreferNoSchedule"
+--node-labels="node-role.kubernetes.io/worker=true"
+```
+
 ### Flags
 `-v` (default: 0): The log verbosity level the program should run in, currently numeric with values between 2 & 4, recommended to use `-v=2`
 
@@ -69,14 +89,6 @@ Then build the code using `go build` which will produce the built binary in a fi
 `--on-demand-node-label` (default: `node-role.kubernetes.io/worker`) Name of label on nodes to be considered for draining.
 
 `--spot-node-label` (default: `node-role.kubernetes.io/spot-worker`) Name of label on nodes to be considered as targets for pods.
-
-Once this is done you should ensure that you have Kubernetes labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` (or your own identifiers) on your on-demand and spot instances respectively and that the on-demand instances are tainted with a `PreferNoSchedule` taint.
-
-For example you could add the following flags to your Kubelet:
-```
---register-with-taints="node-role.kubernetes.io/worker=true:PreferNoSchedule"
---node-labels="node-role.kubernetes.io/worker=true"
-```
 
 ## Scope of the project
 ### Does
@@ -101,7 +113,7 @@ For example you could add the following flags to your Kubelet:
 
 ### Does not
 * Schedule pods (The default scheduler handles this)
-* Scale down empty nodes on your cloud provider (Try the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)))
+* Scale down empty nodes on your cloud provider (Try the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler))
 
 ## Operating logic
 
