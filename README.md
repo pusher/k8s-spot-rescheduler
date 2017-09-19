@@ -167,4 +167,4 @@ Unit tests are covering the decision making parts of this code and can be run us
 To run the tests: `go test $(glide novendor)`
 
 ## License
-This project is licensed under Apache 2.0 and a copy of the license is available [here](https://github.com/pusher/spot-rescheduler/blob/master/license).
+This project is licensed under Apache 2.0 and a copy of the license is available [here](https://github.com/pusher/spot-rescheduler/blob/master/LICENSE).
