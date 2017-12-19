@@ -22,7 +22,7 @@ glide-install:
 test:
   steps:
   - wercker/setup-go-workspace:
-      package-dir: github.com/pusher/spot-rescheduler
+      package-dir: github.com/pusher/k8s-spot-rescheduler
   - script:
       name: go test
       code: go test $(glide novendor)
@@ -30,7 +30,7 @@ test:
 lint:
   steps:
   - wercker/setup-go-workspace:
-      package-dir: github.com/pusher/spot-rescheduler
+      package-dir: github.com/pusher/k8s-spot-rescheduler
   - script:
       name: Install gometalinter
       code: |
@@ -53,7 +53,7 @@ lint:
 build:
   steps:
   - wercker/setup-go-workspace:
-      package-dir: github.com/pusher/spot-rescheduler
+      package-dir: github.com/pusher/k8s-spot-rescheduler
   - script:
       name: go build
       code: GOPATH=/go GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o rescheduler
@@ -72,7 +72,7 @@ push-to-ecr:
       aws-secret-key: $AWS_SECRET_ACCESS_KEY
       aws-region: us-east-1
       aws-registry-id: $AWS_REGISTRY_ID
-      repository: pusher/spot-rescheduler
+      repository: pusher/k8s-spot-rescheduler
       tag: $WERCKER_GIT_COMMIT, $WERCKER_GIT_BRANCH, latest
       entrypoint: /rescheduler
 
@@ -83,4 +83,4 @@ deploy-to-kubernetes:
       server: $KUBERNETES_MASTER
       token: $KUBERNETES_TOKEN
       insecure-skip-tls-verify: true
-      command: set image -n kube-system deployment spot-rescheduler spot-rescheduler=$CONTAINER_IMAGE:$WERCKER_GIT_COMMIT
+      command: set image -n kube-system deployment k8s-spot-rescheduler k8s-spot-rescheduler=$CONTAINER_IMAGE:$WERCKER_GIT_COMMIT

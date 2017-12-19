@@ -23,9 +23,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/pusher/spot-rescheduler/metrics"
-	"github.com/pusher/spot-rescheduler/nodes"
-	"github.com/pusher/spot-rescheduler/scaler"
+	"github.com/pusher/k8s-spot-rescheduler/metrics"
+	"github.com/pusher/k8s-spot-rescheduler/nodes"
+	"github.com/pusher/k8s-spot-rescheduler/scaler"
 	apiv1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -58,7 +58,7 @@ var (
 		 pod secrets for creating a Kubernetes client.`)
 
 	namespace = flag.String("namespace", "kube-system",
-		`Namespace in which spot-rescheduler is run`)
+		`Namespace in which k8s-spot-rescheduler is run`)
 
 	contentType = flags.String("kube-api-content-type", "application/vnd.kubernetes.protobuf",
 		`Content type of requests sent to apiserver.`)
@@ -133,7 +133,7 @@ func main() {
 			Lock: &resourcelock.EndpointsLock{
 				EndpointsMeta: metav1.ObjectMeta{
 					Namespace: *namespace,
-					Name:      "spot-rescheduler",
+					Name:      "k8s-spot-rescheduler",
 				},
 				Client: kubeClient.CoreV1(),
 				LockConfig: resourcelock.ResourceLockConfig{

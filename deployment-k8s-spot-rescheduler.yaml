@@ -2,23 +2,23 @@
 apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
-  name: spot-rescheduler
+  name: k8s-spot-rescheduler
   namespace: kube-system
   labels:
-    app: spot-rescheduler
+    app: k8s-spot-rescheduler
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: spot-rescheduler
+      app: k8s-spot-rescheduler
   template:
     metadata:
       labels:
-        app: spot-rescheduler
+        app: k8s-spot-rescheduler
     spec:
       containers:
-        - image: spot-rescheduler
-          name: spot-rescheduler
+        - image: k8s-spot-rescheduler
+          name: k8s-spot-rescheduler
           resources:
             limits:
               cpu: 20m

@@ -18,7 +18,7 @@ package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/pusher/spot-rescheduler/nodes"
+	"github.com/pusher/k8s-spot-rescheduler/nodes"
 )
 
 const (
