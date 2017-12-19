@@ -35,7 +35,7 @@ However, the scheduler won't reschedule Pods that are already running on on-dema
 ### Deploy to Kubernetes
 A public docker image is not currently available.
 
-There is a basic [deployment](https://github.com/pusher/spot-rescheduler/blob/master/deployment-spot-rescheduler.yaml) file that can be used in the repo.
+There is a basic [deployment](https://github.com/pusher/k8s-spot-rescheduler/blob/master/deployment-k8s-spot-rescheduler.yaml) file that can be used in the repo.
 
 On this, you should configure the flags as you require.
 
@@ -47,11 +47,11 @@ If you wish to build the binary yourself; first make sure you have go installed 
 
 ```bash
 cd $GOPATH/src/github.com # Create this directory if it doesn't exist
-git clone git@github.com:pusher/spot-rescheduler <YOUR_FORK>/spot-rescheduler
+git clone git@github.com:pusher/k8s-spot-rescheduler <YOUR_FORK>/k8s-spot-rescheduler
 glide install -v # Installs dependencies to vendor folder.
 ```
 
-Then build the code using `go build` which will produce the built binary in a file `spot-rescheduler`.
+Then build the code using `go build` which will produce the built binary in a file `k8s-spot-rescheduler`.
 
 ### Requirements
 
@@ -72,7 +72,7 @@ For example you could add the following flags to your Kubelet:
 
 `--running-in-cluster` (default: `true`): Optional, if this controller is running in a kubernetes cluster, use the pod secrets for creating a Kubernetes client.
 
-`--namespace` (deafult: `kube-system`): Namespace in which spot-rescheduler is run.
+`--namespace` (deafult: `kube-system`): Namespace in which k8s-spot-rescheduler is run.
 
  `--kube-api-content-type` (default: `application/vnd.kubernetes.protobuf`): Content type of requests sent to apiserver.
 
@@ -153,7 +153,7 @@ To develop on this project, clone this repo into your `$GOPATH` and download the
 
 ```bash
 cd $GOPATH/src/github.com # Create this directory if it doesn't exist
-git clone git@github.com:<YOUR_FORK>/spot-rescheduler <YOUR_FORK>/spot-rescheduler
+git clone git@github.com:<YOUR_FORK>/k8s-spot-rescheduler <YOUR_FORK>/k8s-spot-rescheduler
 glide install -v # Installs dependencies to vendor folder.
 ```
 
@@ -167,4 +167,4 @@ Unit tests are covering the decision making parts of this code and can be run us
 To run the tests: `go test $(glide novendor)`
 
 ## License
-This project is licensed under Apache 2.0 and a copy of the license is available [here](https://github.com/pusher/spot-rescheduler/blob/master/LICENSE).
+This project is licensed under Apache 2.0 and a copy of the license is available [here](https://github.com/pusher/k8s-spot-rescheduler/blob/master/LICENSE).

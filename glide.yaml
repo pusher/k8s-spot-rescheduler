@@ -1,4 +1,4 @@
-package: github.com/pusher/spot-rescheduler
+package: github.com/pusher/k8s-spot-rescheduler
 import:
 - package: github.com/golang/glog
 - package: github.com/prometheus/client_golang
