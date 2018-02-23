@@ -18,7 +18,8 @@ In reality the rescheduler can be used to remove load from any group of nodes on
 
 For example, it could also be used to allow controller nodes to take up slack while new nodes are being scaled up, and then rescheduling those pods when the new capacity becomes available, thus reducing the load on the controllers once again.
 
-This project was inspired by the [Critical Pod Rescheduler](https://github.com/kubernetes/contrib/tree/master/rescheduler) and takes portions of code from both this repo and the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler).
+## Attribution
+This project was inspired by the [Critical Pod Rescheduler](https://github.com/kubernetes/contrib/tree/master/rescheduler) and takes portions of code from both the [Critical Pod Rescheduler](https://github.com/kubernetes/contrib/tree/master/rescheduler) and the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler).
 
 ## Motivation
 
@@ -39,6 +40,20 @@ There is a basic [deployment](https://github.com/pusher/k8s-spot-rescheduler/blo
 
 On this, you should configure the flags as you require.
 
+#### Requirements
+
+For the Spot-Rescheduler to process nodes as expected; you will need identifying labels which can be passed to the program to allow it to distinguish which nodes it should consider as on-demand and which it should consider as spot instances.
+
+For instance you could add labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` to your on-demand and spot instances respectively.
+
+You should also add the `PreferNoSchedule` taint to your on-demand instances to ensure that the scheduler prefers spot instances when making it's scheduling decisions.
+
+For example you could add the following flags to your Kubelet:
+```
+--register-with-taints="node-role.kubernetes.io/worker=true:PreferNoSchedule"
+--node-labels="node-role.kubernetes.io/worker=true"
+```
+
 ### Prebuilt binary
 A prebuilt binary is not currently available.
 
@@ -52,20 +67,6 @@ glide install -v # Installs dependencies to vendor folder.
 ```
 
 Then build the code using `go build` which will produce the built binary in a file `k8s-spot-rescheduler`.
-
-### Requirements
-
-For the Spot-Rescheduler to process nodes as expected; you will need identifying labels which can be passed to the program to allow it to distinguish which nodes it should consider as on-demand and which it should consider as spot instances.
-
-For instance you could add labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` to your on-demand and spot instances respectively.
-
-You should also add the `PreferNoSchedule` taint to your on-demand instances to ensure that the scheduler prefers spot instances when making it's scheduling decisions.
-
-For example you could add the following flags to your Kubelet:
-```
---register-with-taints="node-role.kubernetes.io/worker=true:PreferNoSchedule"
---node-labels="node-role.kubernetes.io/worker=true"
-```
 
 ### Flags
 `-v` (default: 0): The log verbosity level the program should run in, currently numeric with values between 2 & 4, recommended to use `-v=2`
@@ -149,22 +150,7 @@ The effect of this algorithm should be, that we take the emptiest nodes first an
 * If you want to contribute, please submit a pull request
 
 ## Contributing
-To develop on this project, clone this repo into your `$GOPATH` and download the dependencies using [`glide`](https://github.com/Masterminds/glide).
-
-```bash
-cd $GOPATH/src/github.com # Create this directory if it doesn't exist
-git clone git@github.com:<YOUR_FORK>/k8s-spot-rescheduler <YOUR_FORK>/k8s-spot-rescheduler
-glide install -v # Installs dependencies to vendor folder.
-```
-
-The main package is within `rescheduler.go` and an overview of it's operating logic is described [above](#operating-logic).
-
-If you want to run the rescheduler locally you must have a valid `kubeconfig` file in your repo root and then run the program with the flag `--running-in-cluster=false`.
-
-### Tests
-Unit tests are covering the decision making parts of this code and can be run using the build in Go test suite.
-
-To run the tests: `go test $(glide novendor)`
+Please see our [Contributing](CONTRIBUTING.md) guidelines.
 
 ## License
 This project is licensed under Apache 2.0 and a copy of the license is available [here](https://github.com/pusher/k8s-spot-rescheduler/blob/master/LICENSE).
