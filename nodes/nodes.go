@@ -67,6 +67,7 @@ func NewNodeMap(client kube_client.Interface, nodes []*apiv1.Node) (Map, error) 
 			return nil, err
 		}
 
+		// Sort pods with biggest CPU request first
 		sort.Slice(nodeInfo.Pods, func(i, j int) bool {
 			iCPU := getPodCPURequests(nodeInfo.Pods[i])
 			jCPU := getPodCPURequests(nodeInfo.Pods[j])
@@ -85,9 +86,11 @@ func NewNodeMap(client kube_client.Interface, nodes []*apiv1.Node) (Map, error) 
 		}
 	}
 
+	// Sort spot nodes by most requested CPU first
 	sort.Slice(nodeMap[Spot], func(i, j int) bool {
 		return nodeMap[Spot][i].RequestedCPU > nodeMap[Spot][j].RequestedCPU
 	})
+	// Sort on-demand nodes by least requested CPU first
 	sort.Slice(nodeMap[OnDemand], func(i, j int) bool {
 		return nodeMap[OnDemand][i].RequestedCPU < nodeMap[OnDemand][j].RequestedCPU
 	})
