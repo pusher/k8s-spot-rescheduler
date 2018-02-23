@@ -37,6 +37,7 @@ const (
 	EvictionRetryTime = 10 * time.Second
 )
 
+// Originally from https://github.com/kubernetes/autoscaler/blob/bf59e3daa5922c0e44027fa211948b50cb6b7a12/cluster-autoscaler/core/scale_down.go#L690-L723
 func evictPod(podToEvict *apiv1.Pod, client kube_client.Interface, recorder kube_record.EventRecorder,
 	maxGratefulTerminationSec int, retryUntil time.Time, waitBetweenRetries time.Duration) error {
 	recorder.Eventf(podToEvict, apiv1.EventTypeNormal, "Rescheduler", "deleting pod from on-demand node")
@@ -65,6 +66,8 @@ func evictPod(podToEvict *apiv1.Pod, client kube_client.Interface, recorder kube
 
 // DrainNode performs drain logic on the node. Marks the node as unschedulable and later removes all pods, giving
 // them up to MaxGracefulTerminationTime to finish.
+//
+// Originally from https://github.com/kubernetes/autoscaler/blob/bf59e3daa5922c0e44027fa211948b50cb6b7a12/cluster-autoscaler/core/scale_down.go#L725-L783
 func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface, recorder kube_record.EventRecorder,
 	maxGratefulTerminationSec int, maxPodEvictionTime time.Duration, waitBetweenRetries time.Duration) error {
 
