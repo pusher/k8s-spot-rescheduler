@@ -36,9 +36,9 @@ However, the scheduler won't reschedule Pods that are already running on on-dema
 ### Deploy to Kubernetes
 A public docker image is not currently available.
 
-There is a basic [deployment](https://github.com/pusher/k8s-spot-rescheduler/blob/master/deployment-k8s-spot-rescheduler.yaml) file that can be used in the repo.
+Sample Kubernetes manifests are available in the [deploy](deploy/) folder.
 
-On this, you should configure the flags as you require.
+There is a basic Deployment as well as a ClusterRole, ClusterRoleBinding and ServiceAccount for use in RBAC enabled clusters.
 
 #### Requirements
 
