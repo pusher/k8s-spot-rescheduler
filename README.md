@@ -1,4 +1,4 @@
-# Spot Rescheduler
+# K8s Spot Rescheduler
 
 ## Table of contents
 * [Introduction](#introduction)
@@ -12,7 +12,7 @@
 
 ## Introduction
 
-Spot rescheduler is a tool that tries to reduce load on a set of Kubernetes nodes. It was designed with the purpose of moving Pods scheduled on AWS on-demand instances to AWS spot instances to allow the on-demand instances to be safely scaled down (By the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)).
+K8s Spot rescheduler is a tool that tries to reduce load on a set of Kubernetes nodes. It was designed with the purpose of moving Pods scheduled on AWS on-demand instances to AWS spot instances to allow the on-demand instances to be safely scaled down (By the [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)).
 
 In reality the rescheduler can be used to remove load from any group of nodes onto a different group of nodes. They just need to be labelled appropriately.
 
@@ -29,7 +29,7 @@ The problem however, comes when the spot price drops and you are given new spot 
 
 By tainting the on-demand instances with the Kubernetes `PreferNoSchedule` taint, we can ensure that, if at any point the scheduler needs to choose between spot and on-demand instances, it will choose the preferred spot instances to schedule the new Pods onto.
 
-However, the scheduler won't reschedule Pods that are already running on on-demand instances, blocking them from being scaled down. At this point, the Spot-Rescheduler is required to start the process of moving Pods from the on-demand instances back onto the spot instances.
+However, the scheduler won't reschedule Pods that are already running on on-demand instances, blocking them from being scaled down. At this point, the K8s Spot Rescheduler is required to start the process of moving Pods from the on-demand instances back onto the spot instances.
 
 ## Usage
 
@@ -43,7 +43,7 @@ To deploy in clusters using RBAC, please apply all of the manifests (Deployment,
 
 #### Requirements
 
-For the Spot-Rescheduler to process nodes as expected; you will need identifying labels which can be passed to the program to allow it to distinguish which nodes it should consider as on-demand and which it should consider as spot instances.
+For the K8s Spot Rescheduler to process nodes as expected; you will need identifying labels which can be passed to the program to allow it to distinguish which nodes it should consider as on-demand and which it should consider as spot instances.
 
 For instance you could add labels `node-role.kubernetes.io/worker` and `node-role.kubernetes.io/spot-worker` to your on-demand and spot instances respectively.
 
@@ -60,7 +60,7 @@ If you wish to build the binary yourself; first make sure you have go installed 
 
 ```bash
 cd $GOPATH/src/github.com # Create this directory if it doesn't exist
-git clone git@github.com:pusher/k8s-spot-rescheduler <YOUR_FORK>/k8s-spot-rescheduler
+git clone git@github.com:pusher/k8s-spot-rescheduler pusher/k8s-spot-rescheduler
 glide install -v # Installs dependencies to vendor folder.
 ```
 
