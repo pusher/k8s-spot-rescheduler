@@ -34,11 +34,12 @@ However, the scheduler won't reschedule Pods that are already running on on-dema
 ## Usage
 
 ### Deploy to Kubernetes
-A public docker image is not currently available.
+A docker image is available at `quay.io/pusher/k8s-spot-rescheduler`.
+These images are currently built on pushes to master.
 
 Sample Kubernetes manifests are available in the [deploy](deploy/) folder.
 
-There is a basic Deployment as well as a ClusterRole, ClusterRoleBinding and ServiceAccount for use in RBAC enabled clusters.
+To deploy in clusters using RBAC, please apply all of the manifests (Deployment, ClusterRole, ClusterRoleBinding and ServiceAccount) in the [deploy](deploy/) folder but uncomment the `serviceAccountName` in the [deployment](deploy/deployment.yaml)
 
 #### Requirements
 
@@ -53,9 +54,6 @@ For example you could add the following flags to your Kubelet:
 --register-with-taints="node-role.kubernetes.io/worker=true:PreferNoSchedule"
 --node-labels="node-role.kubernetes.io/worker=true"
 ```
-
-### Prebuilt binary
-A prebuilt binary is not currently available.
 
 ### Building
 If you wish to build the binary yourself; first make sure you have go installed and set up. Then clone this repo into your `$GOPATH` and download the dependencies using [`glide`](https://github.com/Masterminds/glide).

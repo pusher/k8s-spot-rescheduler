@@ -19,7 +19,7 @@ spec:
       # Uncomment the following line if using RBAC
       #serviceAccountName: k8s-spot-rescheduler
       containers:
-        - image: k8s-spot-rescheduler
+        - image: quay.io/pusher/k8s-spot-rescheduler
           name: k8s-spot-rescheduler
           resources:
             limits:
