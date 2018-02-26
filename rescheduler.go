@@ -117,18 +117,23 @@ func main() {
 
 	recorder := createEventRecorder(kubeClient)
 
+	// Allows active/standy HA.
+	// Prevent multiple pods running the algorithm simultaneously.
 	leaderElection := leaderelectionconfig.DefaultLeaderElectionConfiguration()
 	if *inCluster {
 		leaderElection.LeaderElect = true
 	}
 
 	if !leaderElection.LeaderElect {
+		// Leader election not enabled.
+		// Execute main logic.
 		run(kubeClient, recorder)
 	} else {
 		id, err := os.Hostname()
 		if err != nil {
 			glog.Fatalf("Unable to get hostname: %v", err)
 		}
+		// Leader election process
 		kube_leaderelection.RunOrDie(kube_leaderelection.LeaderElectionConfig{
 			Lock: &resourcelock.EndpointsLock{
 				EndpointsMeta: metav1.ObjectMeta{
@@ -174,6 +179,7 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 	podDisruptionBudgetLister := kube_utils.NewPodDisruptionBudgetLister(kubeClient, stopChannel)
 	unschedulablePodLister := kube_utils.NewUnschedulablePodLister(kubeClient, stopChannel)
 
+	// Set nextDrainTime to now to ensure we start processing straight away.
 	nextDrainTime := time.Now()
 
 	for {
@@ -187,7 +193,8 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 					continue
 				}
 
-				// Don't run if pods are unschedulable
+				// Don't run if pods are unschedulable.
+				// Attempt to not make things worse.
 				unschedulablePods, err := unschedulablePodLister.List()
 				if err != nil {
 					glog.Errorf("Failed to get unschedulable pods: %v", err)
@@ -206,14 +213,16 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 					continue
 				}
 
-				// Build a map of nodeInfo structs
+				// Build a map of nodeInfo structs.
+				// NodeInfo is used to map pods onto nodes and see their available
+				// resources.
 				nodeMap, err := nodes.NewNodeMap(kubeClient, allNodes)
 				if err != nil {
 					glog.Errorf("Failed to build node map; %v", err)
 					continue
 				}
 
-				// Update metrics
+				// Update metrics.
 				metrics.UpdateNodesMap(nodeMap)
 
 				// Get PodDisruptionBudgets
@@ -224,12 +233,14 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 				}
 
 				// Get onDemand and spot nodeInfoArrays
+				// These are sorted when the nodeMap is created.
 				onDemandNodeInfos := nodeMap[nodes.OnDemand]
 				spotNodeInfos := nodeMap[nodes.Spot]
 
 				// Update spot node metrics
 				updateSpotNodeMetrics(spotNodeInfos, allPDBs)
 
+				// No on demand nodes so nothing to do.
 				if len(onDemandNodeInfos) < 1 {
 					glog.V(2).Info("No nodes to process.")
 				}
@@ -249,7 +260,7 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 					// Update the number of pods on this node's metrics
 					metrics.UpdateNodePodsCount(nodes.OnDemandNodeLabel, nodeInfo.Node.Name, len(podsForDeletion))
 					if len(podsForDeletion) < 1 {
-						// Nothing to do here
+						// No pods so should just wait for node to be autoscaled away.
 						glog.V(2).Infof("No pods on %s, skipping.", nodeInfo.Node.Name)
 						continue
 					}
@@ -270,6 +281,7 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 					if err != nil {
 						glog.Errorf("Failed to drain node: %v", err)
 					}
+					// Add the drain delay to allow system to stabilise
 					nextDrainTime = time.Now().Add(*nodeDrainDelay)
 					break
 				}
@@ -286,8 +298,10 @@ func createKubeClient(flags *flag.FlagSet, inCluster bool) (kube_client.Interfac
 	var config *kube_restclient.Config
 	var err error
 	if inCluster {
+		// Load config from Kubernetes well known location.
 		config, err = kube_restclient.InClusterConfig()
 	} else {
+		// Search environment for kubeconfig.
 		clientConfig := kubectl_util.DefaultClientConfig(flags)
 		config, err = clientConfig.ClientConfig()
 	}
@@ -329,8 +343,7 @@ func findSpotNodeForPod(predicateChecker *simulator.PredicateChecker, nodeInfos 
 // Goes through a list of pods and works out new nodes to place them on.
 // Returns an error if any of the pods won't fit onto existing spot nodes.
 func canDrainNode(predicateChecker *simulator.PredicateChecker, nodeInfos nodes.NodeInfoArray, pods []*apiv1.Pod) error {
-	// Create a copy of the nodeInfos so that we can modify the list within this
-	// call
+	// Create a copy of the nodeInfos so that we can modify the list
 	nodePlan := nodeInfos.CopyNodeInfos()
 
 	for _, pod := range pods {

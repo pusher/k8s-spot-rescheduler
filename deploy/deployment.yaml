@@ -16,8 +16,10 @@ spec:
       labels:
         app: k8s-spot-rescheduler
     spec:
+      # Uncomment the following line if using RBAC
+      #serviceAccountName: k8s-spot-rescheduler
       containers:
-        - image: k8s-spot-rescheduler
+        - image: quay.io/pusher/k8s-spot-rescheduler
           name: k8s-spot-rescheduler
           resources:
             limits:
@@ -38,3 +40,6 @@ spec:
             - --listen-address=0.0.0.0:9235
             - --on-demand-node-label=node-role.kubernetes.io/worker
             - --spot-node-label=node-role.kubernetes.io/spot-worker
+          ports:
+          - name: http
+            containerPort: 9235
