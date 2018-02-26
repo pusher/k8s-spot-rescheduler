@@ -6,6 +6,7 @@
 * [Usage](#usage)
 * [Scope of the project](#scope-of-the-project)
 * [Operating logic](#operating-logic)
+* [Related](#related)
 * [Communication](#communication)
 * [Contributing](#contributing)
 * [License](#license)
@@ -140,6 +141,9 @@ The rescheduler logic roughly follows the below:
 This process is repeated every `housekeeping-interval` seconds.
 
 The effect of this algorithm should be, that we take the emptiest nodes first and empty those before we empty a node which is busier, thus resulting in the highest number of 'empty' nodes that can be removed from the cluster.
+
+## Related
+- [K8s Spot Termination Handler](https://github.com/pusher/k8s-spot-termination-handler): Gracefully drain spot instances when they are issued with a termination notice.
 
 ## Communication
 
