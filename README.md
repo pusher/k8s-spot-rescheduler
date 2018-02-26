@@ -35,7 +35,7 @@ However, the scheduler won't reschedule Pods that are already running on on-dema
 
 ### Deploy to Kubernetes
 A docker image is available at `quay.io/pusher/k8s-spot-rescheduler`.
-These images are currently built on pushes to master.
+These images are currently built on pushes to master. Releases will be tagged as and when releases are made.
 
 Sample Kubernetes manifests are available in the [deploy](deploy/) folder.
 
