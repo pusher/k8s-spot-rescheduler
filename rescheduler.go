@@ -57,7 +57,7 @@ var (
 		`Optional, if this controller is running in a kubernetes cluster, use the
 		 pod secrets for creating a Kubernetes client.`)
 
-	namespace = flag.String("namespace", "kube-system",
+	namespace = flags.String("namespace", "kube-system",
 		`Namespace in which k8s-spot-rescheduler is run`)
 
 	contentType = flags.String("kube-api-content-type", "application/vnd.kubernetes.protobuf",
