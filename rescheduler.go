@@ -79,6 +79,8 @@ var (
 
 	listenAddress = flags.String("listen-address", "localhost:9235",
 		`Address to listen on for serving prometheus metrics`)
+
+	deleteNonReplicatedPods = flags.Bool("delete-non-replicated-pods", false, `Delete non replicated pods in on-demand instance for rescheduling.`)
 )
 
 func main() {
@@ -251,7 +253,7 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 				for _, nodeInfo := range onDemandNodeInfos {
 
 					// Get a list of pods that we would need to move onto other nodes
-					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, allPDBs, false, false, false, false, nil, 0, time.Now())
+					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, allPDBs, *deleteNonReplicatedPods, false, false, false, nil, 0, time.Now())
 					if err != nil {
 						glog.Errorf("Failed to get pods for consideration: %v", err)
 						continue
@@ -378,7 +380,7 @@ func drainNode(kubeClient kube_client.Interface, recorder kube_record.EventRecor
 func updateSpotNodeMetrics(spotNodeInfos nodes.NodeInfoArray, pdbs []*policyv1.PodDisruptionBudget) {
 	for _, nodeInfo := range spotNodeInfos {
 		// Get a list of pods that are on the node (Only the types considered by the rescheduler)
-		podsOnNode, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, pdbs, false, false, false, false, nil, 0, time.Now())
+		podsOnNode, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, pdbs, *deleteNonReplicatedPods, false, false, false, nil, 0, time.Now())
 		if err != nil {
 			glog.Errorf("Failed to update metrics on spot node %s: %v", nodeInfo.Node.Name, err)
 			continue

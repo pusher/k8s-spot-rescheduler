@@ -90,6 +90,8 @@ Then build the code using `go build` which will produce the built binary in a fi
 
 `--spot-node-label` (default: `node-role.kubernetes.io/spot-worker`) Name of label on nodes to be considered as targets for pods.
 
+`--delete-non-replicated-pods` (default: `false`) Delete non replicated pods in on-demand instance for rescheduling.
+
 ## Scope of the project
 ### Does
 * Look for Pods on on-demand instances
