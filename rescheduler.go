@@ -80,7 +80,7 @@ var (
 	listenAddress = flags.String("listen-address", "localhost:9235",
 		`Address to listen on for serving prometheus metrics`)
 
-	deleteNonReplicatedPods = flags.Bool("delete-non-replicated-pods", false, `Delete non replicated pods in on-demand instance for rescheduling.`)
+	deleteNonReplicatedPods = flags.Bool("delete-non-replicated-pods", false, `Delete non-replicated pods running on on-demand instance. Note that some non-replicated pods will not be rescheduled.`)
 )
 
 func main() {
