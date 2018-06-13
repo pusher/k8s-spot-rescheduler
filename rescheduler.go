@@ -253,10 +253,28 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 				for _, nodeInfo := range onDemandNodeInfos {
 
 					// Get a list of pods that we would need to move onto other nodes
-					podsForDeletion, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, allPDBs, *deleteNonReplicatedPods, false, false, false, nil, 0, time.Now())
+					allPods, err := autoscaler_drain.GetPodsForDeletionOnNodeDrain(nodeInfo.Pods, allPDBs, *deleteNonReplicatedPods, false, false, false, nil, 0, time.Now())
 					if err != nil {
 						glog.Errorf("Failed to get pods for consideration: %v", err)
 						continue
+					}
+
+					podsForDeletion := make([]*apiv1.Pod, 0)
+					for _, pod := range allPods {
+						controlledByDaemonSet := false
+						for _, owner := range pod.GetOwnerReferences() {
+							if *owner.Controller && owner.Kind == "DaemonSet" {
+								controlledByDaemonSet = true
+								break
+							}
+						}
+
+						if controlledByDaemonSet {
+							glog.V(4).Infof("Ignoring pod %s which is controlled by DaemonSet", podID(pod))
+							continue
+						}
+
+						podsForDeletion = append(podsForDeletion, pod)
 					}
 
 					// Update the number of pods on this node's metrics
