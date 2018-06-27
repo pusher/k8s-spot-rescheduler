@@ -39,9 +39,9 @@ const (
 
 // Originally from https://github.com/kubernetes/autoscaler/blob/bf59e3daa5922c0e44027fa211948b50cb6b7a12/cluster-autoscaler/core/scale_down.go#L690-L723
 func evictPod(podToEvict *apiv1.Pod, client kube_client.Interface, recorder kube_record.EventRecorder,
-	maxGratefulTerminationSec int, retryUntil time.Time, waitBetweenRetries time.Duration) error {
+	maxGracefulTerminationSec int, retryUntil time.Time, waitBetweenRetries time.Duration) error {
 	recorder.Eventf(podToEvict, apiv1.EventTypeNormal, "Rescheduler", "deleting pod from on-demand node")
-	maxGraceful64 := int64(maxGratefulTerminationSec)
+	maxGraceful64 := int64(maxGracefulTerminationSec)
 	var lastError error
 	for first := true; first || time.Now().Before(retryUntil); time.Sleep(waitBetweenRetries) {
 		first = false
@@ -69,7 +69,7 @@ func evictPod(podToEvict *apiv1.Pod, client kube_client.Interface, recorder kube
 //
 // Originally from https://github.com/kubernetes/autoscaler/blob/bf59e3daa5922c0e44027fa211948b50cb6b7a12/cluster-autoscaler/core/scale_down.go#L725-L783
 func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface, recorder kube_record.EventRecorder,
-	maxGratefulTerminationSec int, maxPodEvictionTime time.Duration, waitBetweenRetries time.Duration) error {
+	maxGracefulTerminationSec int, maxPodEvictionTime time.Duration, waitBetweenRetries time.Duration) error {
 
 	drainSuccessful := false
 	toEvict := len(pods)
@@ -92,7 +92,7 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 	confirmations := make(chan error, toEvict)
 	for _, pod := range pods {
 		go func(podToEvict *apiv1.Pod) {
-			confirmations <- evictPod(podToEvict, client, recorder, maxGratefulTerminationSec, retryUntil, waitBetweenRetries)
+			confirmations <- evictPod(podToEvict, client, recorder, maxGracefulTerminationSec, retryUntil, waitBetweenRetries)
 		}(pod)
 	}
 
