@@ -114,9 +114,9 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 		return fmt.Errorf("Failed to drain node %s/%s, due to following errors: %v", node.Namespace, node.Name, evictionErrs)
 	}
 
-	// Evictions created successfully, wait maxGratefulTerminationSec to see if nodes really disappeared
+	// Evictions created successfully, wait for the remainder of maxPodEvictionTime to see if pods have been evicted
 	var allGone bool
-	for start := time.Now(); time.Now().Sub(start) < time.Duration(maxGratefulTerminationSec)*time.Second; time.Sleep(5 * time.Second) {
+	for time.Now().Before(retryUntil.Add(5 * time.Second)) {
 		allGone = true
 		for _, pod := range pods {
 			podreturned, err := client.Core().Pods(pod.Namespace).Get(pod.Name, metav1.GetOptions{})
@@ -138,6 +138,7 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 			deletetaint.CleanToBeDeleted(node, client)
 			return nil
 		}
+		time.Sleep(5 * time.Second)
 	}
 	return fmt.Errorf("Failed to drain node %s/%s: pods remaining after timeout", node.Namespace, node.Name)
 }
