@@ -38,10 +38,10 @@ import (
 	kube_leaderelection "k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	kube_record "k8s.io/client-go/tools/record"
-	"k8s.io/kubernetes/pkg/api"
+	api "k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/client/leaderelectionconfig"
 	kubectl_util "k8s.io/kubernetes/pkg/kubectl/cmd/util"
-	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
+	"k8s.io/kubernetes/pkg/scheduler/schedulercache"
 
 	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus"
@@ -353,7 +353,7 @@ func findSpotNodeForPod(predicateChecker *simulator.PredicateChecker, nodeInfos 
 		pod.Spec.NodeName = ""
 
 		// Check with the schedulers predicates to find a node to schedule on
-		if err := predicateChecker.CheckPredicates(pod, kubeNodeInfo); err == nil {
+		if err := predicateChecker.CheckPredicates(pod, nil, kubeNodeInfo, true); err == nil {
 			return nodeInfo
 		}
 	}
