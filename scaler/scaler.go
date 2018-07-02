@@ -39,9 +39,9 @@ const (
 
 // Originally from https://github.com/kubernetes/autoscaler/blob/bf59e3daa5922c0e44027fa211948b50cb6b7a12/cluster-autoscaler/core/scale_down.go#L690-L723
 func evictPod(podToEvict *apiv1.Pod, client kube_client.Interface, recorder kube_record.EventRecorder,
-	maxGratefulTerminationSec int, retryUntil time.Time, waitBetweenRetries time.Duration) error {
+	maxGracefulTerminationSec int, retryUntil time.Time, waitBetweenRetries time.Duration) error {
 	recorder.Eventf(podToEvict, apiv1.EventTypeNormal, "Rescheduler", "deleting pod from on-demand node")
-	maxGraceful64 := int64(maxGratefulTerminationSec)
+	maxGraceful64 := int64(maxGracefulTerminationSec)
 	var lastError error
 	for first := true; first || time.Now().Before(retryUntil); time.Sleep(waitBetweenRetries) {
 		first = false
@@ -69,7 +69,7 @@ func evictPod(podToEvict *apiv1.Pod, client kube_client.Interface, recorder kube
 //
 // Originally from https://github.com/kubernetes/autoscaler/blob/bf59e3daa5922c0e44027fa211948b50cb6b7a12/cluster-autoscaler/core/scale_down.go#L725-L783
 func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface, recorder kube_record.EventRecorder,
-	maxGratefulTerminationSec int, maxPodEvictionTime time.Duration, waitBetweenRetries time.Duration) error {
+	maxGracefulTerminationSec int, maxPodEvictionTime time.Duration, waitBetweenRetries time.Duration) error {
 
 	drainSuccessful := false
 	toEvict := len(pods)
@@ -92,7 +92,7 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 	confirmations := make(chan error, toEvict)
 	for _, pod := range pods {
 		go func(podToEvict *apiv1.Pod) {
-			confirmations <- evictPod(podToEvict, client, recorder, maxGratefulTerminationSec, retryUntil, waitBetweenRetries)
+			confirmations <- evictPod(podToEvict, client, recorder, maxGracefulTerminationSec, retryUntil, waitBetweenRetries)
 		}(pod)
 	}
 
@@ -114,9 +114,9 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 		return fmt.Errorf("Failed to drain node %s/%s, due to following errors: %v", node.Namespace, node.Name, evictionErrs)
 	}
 
-	// Evictions created successfully, wait maxGratefulTerminationSec to see if nodes really disappeared
+	// Evictions created successfully, wait for the remainder of maxPodEvictionTime to see if pods have been evicted
 	var allGone bool
-	for start := time.Now(); time.Now().Sub(start) < time.Duration(maxGratefulTerminationSec)*time.Second; time.Sleep(5 * time.Second) {
+	for time.Now().Before(retryUntil.Add(5 * time.Second)) {
 		allGone = true
 		for _, pod := range pods {
 			podreturned, err := client.Core().Pods(pod.Namespace).Get(pod.Name, metav1.GetOptions{})
@@ -138,6 +138,7 @@ func DrainNode(node *apiv1.Node, pods []*apiv1.Pod, client kube_client.Interface
 			deletetaint.CleanToBeDeleted(node, client)
 			return nil
 		}
+		time.Sleep(5 * time.Second)
 	}
 	return fmt.Errorf("Failed to drain node %s/%s: pods remaining after timeout", node.Namespace, node.Name)
 }
