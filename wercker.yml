@@ -8,20 +8,25 @@ box:
 # Kubernetes takes a long time to download
 no-response-timeout: 10
 
-# TODO: remove before merge
+# TODO: rename this
 glide-install:
   steps:
-  - script:
-      name: nothing to see here
-      code: echo "bye glide"
+    - wercker/setup-go-workspace:
+        package-dir: github.com/pusher/k8s-spot-rescheduler
+    - script: Install Dep
+      code: |
+        go get -u github.com/golang/dep/cmd/dep
+    - script:
+      name: Fetch dependencies
+      code: |
+        dep ensure --vendor-only
+        shopt -s dotglob
+        mv ./* $WERCKER_OUTPUT_DIR
 
 test:
   steps:
   - wercker/setup-go-workspace:
       package-dir: github.com/pusher/k8s-spot-rescheduler
-  - script:
-      name: dep ensure
-      code: dep ensure -v
   - script:
       name: go test
       code: go test -v ./...
@@ -30,9 +35,6 @@ lint:
   steps:
   - wercker/setup-go-workspace:
       package-dir: github.com/pusher/k8s-spot-rescheduler
-  - script:
-      name: dep ensure
-      code: dep ensure -v
   - script:
       name: Install gometalinter
       code: |
@@ -56,9 +58,6 @@ build:
   steps:
   - wercker/setup-go-workspace:
       package-dir: github.com/pusher/k8s-spot-rescheduler
-  - script:
-      name: dep ensure
-      code: dep ensure -v
   - script:
       name: go build
       code: GOPATH=/go GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o rescheduler
