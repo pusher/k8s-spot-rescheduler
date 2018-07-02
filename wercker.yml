@@ -8,8 +8,7 @@ box:
 # Kubernetes takes a long time to download
 no-response-timeout: 10
 
-# TODO: rename this
-glide-install:
+dep-install:
   steps:
     - wercker/setup-go-workspace:
         package-dir: github.com/pusher/k8s-spot-rescheduler
