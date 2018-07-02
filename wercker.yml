@@ -1,5 +1,5 @@
 box:
-  id: pusher/elements-alpine-golang-build:1.9-alpine3.6
+  id: pusher/elements-alpine-golang-build:1.10.3-alpine3.7
   aws-access-key: $AWS_CI_ACCESS_KEY_ID
   aws-secret-key: $AWS_CI_SECRET_ACCESS_KEY
   aws-region: us-east-1
@@ -8,16 +8,19 @@ box:
 # Kubernetes takes a long time to download
 no-response-timeout: 10
 
-glide-install:
+dep-install:
   steps:
-    - script:
-        name: Install Mercurial
-        code: |
-          apk add --update mercurial
+    - wercker/setup-go-workspace:
+        package-dir: github.com/pusher/k8s-spot-rescheduler
+    - script: Install Dep
+      code: |
+        go get -u github.com/golang/dep/cmd/dep
     - script:
       name: Fetch dependencies
       code: |
-        glide --home $WERCKER_CACHE_DIR/.glide install -v
+        dep ensure --vendor-only
+        shopt -s dotglob
+        mv ./* $WERCKER_OUTPUT_DIR
 
 test:
   steps:
@@ -25,7 +28,7 @@ test:
       package-dir: github.com/pusher/k8s-spot-rescheduler
   - script:
       name: go test
-      code: go test $(glide novendor)
+      code: go test -v ./...
 
 lint:
   steps:
@@ -48,7 +51,7 @@ lint:
        --enable=deadcode \
        --enable=gofmt \
        --enable=goimports \
-       --tests $(glide novendor)
+       --tests --deadline=50s ./...
 
 build:
   steps:
