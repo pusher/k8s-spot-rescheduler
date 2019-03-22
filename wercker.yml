@@ -51,7 +51,7 @@ lint:
        --enable=deadcode \
        --enable=gofmt \
        --enable=goimports \
-       --tests --deadline=50s ./...
+       --tests --deadline=120s ./...
 
 build:
   steps:
