@@ -69,7 +69,7 @@ push-to-ecr:
   steps:
   - script:
       name: Copy binary
-      code: cp rescheduler /
+      code: cp rescheduler /bin/rescheduler
   - internal/docker-push:
       aws-access-key: $AWS_CI_ACCESS_KEY_ID
       aws-secret-key: $AWS_CI_SECRET_ACCESS_KEY
@@ -77,4 +77,4 @@ push-to-ecr:
       aws-registry-id: $AWS_REGISTRY_ID
       repository: pusher/k8s-spot-rescheduler
       tag: $WERCKER_GIT_COMMIT, $WERCKER_GIT_BRANCH, latest
-      entrypoint: /rescheduler
+      entrypoint: /bin/rescheduler
