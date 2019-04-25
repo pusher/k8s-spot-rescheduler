@@ -6,8 +6,10 @@ Download the dependencies using [`glide`](https://github.com/Masterminds/glide).
 
 ```bash
 cd $GOPATH/src/github.com # Create this directory if it doesn't exist
-git clone git@github.com:<YOUR_FORK>/spot-rescheduler pusher/spot-rescheduler
-glide install -v # Installs dependencies to vendor folder.
+git clone git@github.com:<YOUR_FORK>/k8s-spot-rescheduler pusher/k8s-spot-rescheduler
+cd $GOPATH/src/github.com/pusher/k8s-spot-recheduler
+./configure # Configure local tooling - install anything reported as missing
+make vendor # Clone required project dependencies
 ```
 
 The main package is within `rescheduler.go` and an overview of it's operating logic is described in the [Readme](README.md/#operating-logic).
@@ -25,4 +27,4 @@ Please mention the open bug issue number within your PR if applicable.
 ### Tests
 Unit tests are covering the decision making parts of this code and can be run using the built in Go test suite.
 
-To run the tests: `go test $(glide novendor)`
+To run the tests: `make test`

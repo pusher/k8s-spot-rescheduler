@@ -81,6 +81,8 @@ var (
 		`Address to listen on for serving prometheus metrics`)
 
 	deleteNonReplicatedPods = flags.Bool("delete-non-replicated-pods", false, `Delete non-replicated pods running on on-demand instance. Note that some non-replicated pods will not be rescheduled.`)
+
+	showVersion = flags.Bool("version", false, "Show version information and exit.")
 )
 
 func main() {
@@ -102,6 +104,11 @@ func main() {
 		`Name of label on nodes to be considered as targets for pods.`)
 
 	flags.Parse(os.Args)
+
+	if *showVersion {
+		fmt.Printf("k8s-spot-rescheduler %s\n", VERSION)
+		os.Exit(0)
+	}
 
 	glog.Infof("Running Rescheduler")
 

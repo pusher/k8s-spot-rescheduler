@@ -22,3 +22,7 @@ vendor/
 # Kubernetes config
 kubeconfig
 credentials/
+
+# Local environmental config
+.env
+k8s-spot-rescheduler
