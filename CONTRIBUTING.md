@@ -9,7 +9,7 @@ cd $GOPATH/src/github.com # Create this directory if it doesn't exist
 git clone git@github.com:<YOUR_FORK>/k8s-spot-rescheduler pusher/k8s-spot-rescheduler
 cd $GOPATH/src/github.com/pusher/k8s-spot-recheduler
 ./configure # Configure local tooling - install anything reported as missing
-make vender # Clone required project dependencies
+make vendor # Clone required project dependencies
 ```
 
 The main package is within `rescheduler.go` and an overview of it's operating logic is described in the [Readme](README.md/#operating-logic).
