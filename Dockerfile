@@ -12,7 +12,11 @@ COPY Gopkg.toml Gopkg.toml
 
 RUN dep ensure --vendor-only
 
-COPY *.go .
+COPY *.go ./
+COPY deploy deploy/
+COPY metrics metrics/
+COPY nodes nodes/
+COPY scaler scaler/
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-X main.VERSION=${VERSION}" -a -o k8s-spot-rescheduler github.com/pusher/k8s-spot-rescheduler
 
