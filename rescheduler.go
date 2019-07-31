@@ -24,12 +24,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang/glog"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/pusher/k8s-spot-rescheduler/metrics"
 	"github.com/pusher/k8s-spot-rescheduler/nodes"
 	"github.com/pusher/k8s-spot-rescheduler/scaler"
+	flag "github.com/spf13/pflag"
 	apiv1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	simulator "k8s.io/autoscaler/cluster-autoscaler/simulator"
 	autoscaler_drain "k8s.io/autoscaler/cluster-autoscaler/utils/drain"
 	kube_utils "k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
@@ -43,10 +47,6 @@ import (
 	"k8s.io/kubernetes/pkg/client/leaderelectionconfig"
 	kubectl_util "k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/pkg/scheduler/schedulercache"
-
-	"github.com/golang/glog"
-	"github.com/prometheus/client_golang/prometheus"
-	flag "github.com/spf13/pflag"
 )
 
 var (
@@ -58,7 +58,7 @@ var (
 		`Optional, if this controller is running in a kubernetes cluster, use the
 		 pod secrets for creating a Kubernetes client.`)
 
-	namespace = flags.String("namespace", "kube-system",
+	namespace = flags.String("rescheduler-namespace", "kube-system",
 		`Namespace in which k8s-spot-rescheduler is run`)
 
 	contentType = flags.String("kube-api-content-type", "application/vnd.kubernetes.protobuf",
@@ -273,6 +273,12 @@ func run(kubeClient kube_client.Interface, recorder kube_record.EventRecorder) {
 						continue
 					}
 
+					if err := checkPdbs(allPods, allPDBs); err != nil {
+						glog.V(2).Infof(err.Error())
+						glog.V(2).Infof("skipping %s because of not enough pdbs", nodeInfo.Node.Name)
+						continue
+					}
+
 					podsForDeletion := make([]*apiv1.Pod, 0)
 					for _, pod := range allPods {
 						controlledByDaemonSet := false
@@ -436,6 +442,23 @@ func validateArgs(OnDemandNodeLabel string, SpotNodeLabel string) error {
 	if len(strings.Split(SpotNodeLabel, "=")) > 2 {
 		return fmt.Errorf("the spot node label is not correctly formatted: expected '<label_name>' or '<label_name>=<label_value>', but got %s", SpotNodeLabel)
 	}
+	return nil
+}
 
+func checkPdbs(pods []*apiv1.Pod, pdbs []*policyv1.PodDisruptionBudget) error {
+	// TODO: make it more efficient.
+	for _, pdb := range pdbs {
+		selector, err := metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
+		if err != nil {
+			return err
+		}
+		for _, pod := range pods {
+			if pod.Namespace == pdb.Namespace && selector.Matches(labels.Set(pod.Labels)) {
+				if pdb.Status.PodDisruptionsAllowed < 1 {
+					return fmt.Errorf("not enough pod disruption budget to move %s/%s", pod.Namespace, pod.Name)
+				}
+			}
+		}
+	}
 	return nil
 }
