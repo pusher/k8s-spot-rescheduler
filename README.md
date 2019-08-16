@@ -57,12 +57,12 @@ For example you could add the following flags to your Kubelet:
 ```
 
 ### Building
-If you wish to build the binary yourself; first make sure you have go installed and set up. Then clone this repo into your `$GOPATH` and download the dependencies using [`glide`](https://github.com/Masterminds/glide).
+If you wish to build the binary yourself; first make sure you have go installed and set up. Then clone this repo into your `$GOPATH` and download the dependencies using [`dep`](https://github.com/golang/dep).
 
 ```bash
 cd $GOPATH/src/github.com # Create this directory if it doesn't exist
 git clone git@github.com:pusher/k8s-spot-rescheduler pusher/k8s-spot-rescheduler
-glide install -v # Installs dependencies to vendor folder.
+dep ensure -v # Installs dependencies to vendor folder.
 ```
 
 Then build the code using `go build` which will produce the built binary in a file `k8s-spot-rescheduler`.
