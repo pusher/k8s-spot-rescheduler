@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/pusher/k8s-spot-rescheduler/metrics"
@@ -96,11 +97,11 @@ func main() {
 	// Add nodes labels as flags
 	flags.StringVar(&nodes.OnDemandNodeLabel,
 		"on-demand-node-label",
-		"node-role.kubernetes.io/worker",
+		"kubernetes.io/role=worker",
 		`Name of label on nodes to be considered for draining.`)
 	flags.StringVar(&nodes.SpotNodeLabel,
 		"spot-node-label",
-		"node-role.kubernetes.io/spot-worker",
+		"kubernetes.io/role=spot-worker",
 		`Name of label on nodes to be considered as targets for pods.`)
 
 	flags.Parse(os.Args)
@@ -108,6 +109,12 @@ func main() {
 	if *showVersion {
 		fmt.Printf("k8s-spot-rescheduler %s\n", VERSION)
 		os.Exit(0)
+	}
+
+	err := validateArgs(nodes.OnDemandNodeLabel, nodes.SpotNodeLabel)
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		os.Exit(1)
 	}
 
 	glog.Infof("Running Rescheduler")
@@ -418,4 +425,17 @@ func updateSpotNodeMetrics(spotNodeInfos nodes.NodeInfoArray, pdbs []*policyv1.P
 // Returns the pods Namespace/Name as a string
 func podID(pod *apiv1.Pod) string {
 	return fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
+}
+
+// Checks that the node lablels provided as arguments are in fact, sane.
+func validateArgs(OnDemandNodeLabel string, SpotNodeLabel string) error {
+	if len(strings.Split(OnDemandNodeLabel, "=")) > 2 {
+		return fmt.Errorf("the on demand node label is not correctly formatted: expected '<label_name>' or '<label_name>=<label_value>', but got %s", OnDemandNodeLabel)
+	}
+
+	if len(strings.Split(SpotNodeLabel, "=")) > 2 {
+		return fmt.Errorf("the spot node label is not correctly formatted: expected '<label_name>' or '<label_name>=<label_value>', but got %s", SpotNodeLabel)
+	}
+
+	return nil
 }

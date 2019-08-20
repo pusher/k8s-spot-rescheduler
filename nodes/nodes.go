@@ -18,6 +18,7 @@ package nodes
 
 import (
 	"sort"
+	"strings"
 
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,9 +28,9 @@ import (
 
 var (
 	// OnDemandNodeLabel label for on-demand instances.
-	OnDemandNodeLabel = "node-role.kubernetes.io/worker"
+	OnDemandNodeLabel = "kubernetes.io/role=worker"
 	// SpotNodeLabel label for spot instances.
-	SpotNodeLabel = "node-role.kubernetes.io/spot-worker"
+	SpotNodeLabel = "kubernetes.io/role=spot-worker"
 	// OnDemand key for on-demand instances of NodesMap.
 	OnDemand NodeType
 	// Spot key for spot instances of NodesMap.
@@ -157,14 +158,46 @@ func getPodCPURequests(pod *apiv1.Pod) int64 {
 
 // Determines if a node has the spotNodeLabel assigned
 func isSpotNode(node *apiv1.Node) bool {
-	_, found := node.ObjectMeta.Labels[SpotNodeLabel]
-	return found
+	splitLabel := strings.SplitN(SpotNodeLabel, "=", 2)
+
+	// If "=" found, check for new label schema. If no "=" is found, check for
+	// old label schema
+	switch len(splitLabel) {
+	case 1:
+		_, found := node.ObjectMeta.Labels[SpotNodeLabel]
+		return found
+	case 2:
+		spotLabelKey := splitLabel[0]
+		spotLabelVal := splitLabel[1]
+
+		val, _ := node.ObjectMeta.Labels[spotLabelKey]
+		if val == spotLabelVal {
+			return true
+		}
+	}
+	return false
 }
 
 // Determines if a node has the OnDemandNodeLabel assigned
 func isOnDemandNode(node *apiv1.Node) bool {
-	_, found := node.ObjectMeta.Labels[OnDemandNodeLabel]
-	return found
+	splitLabel := strings.SplitN(OnDemandNodeLabel, "=", 2)
+
+	// If "=" found, check for new label schema. If no "=" is found, check for
+	// old label schema
+	switch len(splitLabel) {
+	case 1:
+		_, found := node.ObjectMeta.Labels[OnDemandNodeLabel]
+		return found
+	case 2:
+		onDemandLabelKey := splitLabel[0]
+		onDemandLabelVal := splitLabel[1]
+
+		val, _ := node.ObjectMeta.Labels[onDemandLabelKey]
+		if val == onDemandLabelVal {
+			return true
+		}
+	}
+	return false
 }
 
 // CopyNodeInfos returns an array of copies of the NodeInfos in this array.
