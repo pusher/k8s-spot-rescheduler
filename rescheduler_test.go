@@ -70,6 +70,24 @@ func TestFindSpotNodeForPod(t *testing.T) {
 
 }
 
+func TestNodeLabelValidation(t *testing.T) {
+	onDemandLabel := "foo.bar/role=worker"
+	spotLabel := "foo.bar/node-role"
+
+	err := validateArgs(onDemandLabel, spotLabel)
+	assert.NoError(t, err)
+
+	onDemandLabel = "foo.bar/broken=worker=true"
+	err = validateArgs(onDemandLabel, spotLabel)
+	assert.EqualError(t, err, "the on demand node label is not correctly formatted: expected '<label_name>' or '<label_name>=<label_value>', but got foo.bar/broken=worker=true")
+
+	onDemandLabel = "foo.bar/role=worker"
+	spotLabel = "foo.bar/node-role=spot=fail"
+	err = validateArgs(onDemandLabel, spotLabel)
+	assert.EqualError(t, err, "the spot node label is not correctly formatted: expected '<label_name>' or '<label_name>=<label_value>', but got foo.bar/node-role=spot=fail")
+
+}
+
 func TestCanDrainNode(t *testing.T) {
 	predicateChecker := simulator.NewTestPredicateChecker()
 

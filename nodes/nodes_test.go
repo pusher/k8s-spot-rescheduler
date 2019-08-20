@@ -29,12 +29,41 @@ import (
 	core "k8s.io/client-go/testing"
 )
 
+func TestIsSpotNode(t *testing.T) {
+	spotNode := createTestNodeWithLabel("fooSpotNode", 2000, map[string]string{"foo": "bar"})
+
+	SpotNodeLabel = "foo"
+	assert.True(t, isSpotNode(spotNode), "expected node with label 'foo' to be spot node")
+
+	SpotNodeLabel = "foo=bar"
+	assert.True(t, isSpotNode(spotNode), "expected node with label 'foo' and value 'bar' to be spot node")
+
+	SpotNodeLabel = "foo=baz"
+	assert.False(t, isSpotNode(spotNode), "expected node with label 'foo' and value 'bar' to not be spot node")
+}
+
+func TestIsOnDemandNode(t *testing.T) {
+	onDemandNode := createTestNodeWithLabel("fooDemandNode", 2000, map[string]string{"foo": "bar"})
+
+	OnDemandNodeLabel = "foo"
+	assert.True(t, isOnDemandNode(onDemandNode), "expected node with label 'foo' to be on demand node")
+
+	OnDemandNodeLabel = "foo=bar"
+	assert.True(t, isOnDemandNode(onDemandNode), "expected node with label 'foo' and value 'bar' to be on demand node")
+
+	OnDemandNodeLabel = "foo=baz"
+	assert.False(t, isOnDemandNode(onDemandNode), "expected node with label 'foo' and value 'bar' to not be on demand node")
+}
+
 func TestNewNodeMap(t *testing.T) {
+	OnDemandNodeLabel = "kubernetes.io/role=worker"
+	SpotNodeLabel = "kubernetes.io/role=spot-worker"
+
 	spotLabels := map[string]string{
-		SpotNodeLabel: "true",
+		"kubernetes.io/role": "spot-worker",
 	}
 	onDemandLabels := map[string]string{
-		OnDemandNodeLabel: "true",
+		"kubernetes.io/role": "worker",
 	}
 
 	nodes := []*apiv1.Node{
