@@ -19,7 +19,7 @@ spec:
       # Uncomment the following line if using RBAC
       #serviceAccountName: k8s-spot-rescheduler
       containers:
-        - image: quay.io/pusher/k8s-spot-rescheduler:v0.1.1
+        - image: quay.io/pusher/k8s-spot-rescheduler:v0.3.0
           name: k8s-spot-rescheduler
           resources:
             limits:
@@ -29,7 +29,7 @@ spec:
               cpu: 10m
               memory: 50Mi
           command:
-            - rescheduler
+            - k8s-spot-rescheduler
             - -v=2
             - --running-in-cluster=true
             - --namespace=kube-system
