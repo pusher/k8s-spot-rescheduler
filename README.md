@@ -1,5 +1,8 @@
 # K8s Spot Rescheduler
 
+> NOTE: this repository is currently **UNMAINTAINED** and is looking for new owner(s).
+> See [#74](/../../issues/74) for more information.
+
 ## Table of contents
 * [Introduction](#introduction)
 * [Motivation](#motivation)
